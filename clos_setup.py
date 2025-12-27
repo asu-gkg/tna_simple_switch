@@ -55,7 +55,8 @@ PORT_TYPE_UPLINK = 2
 # DEV_PORT 映射 (从 pm show 获取)
 # 前面板端口 -> DEV_PORT
 DEV_PORT = {
-    1: 128, 2: 136, 3: 144, 4: 152,   # 下行端口
+    1: 128, 2: 136, 3: 144, 4: 152,   # 下行端口 (Edge 1, 2)
+    5: 160, 6: 168, 7: 176, 8: 184,   # 下行端口 (Edge 3, 4)
     25: 188, 26: 180, 27: 172, 28: 164,  # 上行端口 (部分)
     29: 148, 30: 156, 31: 132, 32: 140   # 上行端口 (部分)
 }
@@ -141,15 +142,15 @@ local_forward_table.add_with_forward_local(dst_addr=0xAC020102, dst_addr_p_lengt
 local_forward_table.add_with_forward_local(dst_addr=0xAC020103, dst_addr_p_length=32, port=DEV_PORT[4], dst_mac=H4_MAC, src_mac=EDGE2_MAC)  # 172.2.1.3
 print("  172.2.1.2 -> P3 (DEV_PORT %d), 172.2.1.3 -> P4 (DEV_PORT %d)" % (DEV_PORT[3], DEV_PORT[4]))
 
-# Edge 3 主机 (端口 5,6 未启用，先跳过)
-# local_forward_table.add_with_forward_local(dst_addr=0xAC030102, dst_addr_p_length=32, port=DEV_PORT[5], dst_mac=H5_MAC, src_mac=EDGE3_MAC)
-# local_forward_table.add_with_forward_local(dst_addr=0xAC030103, dst_addr_p_length=32, port=DEV_PORT[6], dst_mac=H6_MAC, src_mac=EDGE3_MAC)
-print("  Edge 3: ports 5,6 not enabled - skipped")
+# Edge 3 主机
+local_forward_table.add_with_forward_local(dst_addr=0xAC030102, dst_addr_p_length=32, port=DEV_PORT[5], dst_mac=H5_MAC, src_mac=EDGE3_MAC)  # 172.3.1.2
+local_forward_table.add_with_forward_local(dst_addr=0xAC030103, dst_addr_p_length=32, port=DEV_PORT[6], dst_mac=H6_MAC, src_mac=EDGE3_MAC)  # 172.3.1.3
+print("  172.3.1.2 -> P5 (DEV_PORT %d), 172.3.1.3 -> P6 (DEV_PORT %d)" % (DEV_PORT[5], DEV_PORT[6]))
 
-# Edge 4 主机 (端口 7,8 未启用，先跳过)
-# local_forward_table.add_with_forward_local(dst_addr=0xAC040102, dst_addr_p_length=32, port=DEV_PORT[7], dst_mac=H7_MAC, src_mac=EDGE4_MAC)
-# local_forward_table.add_with_forward_local(dst_addr=0xAC040103, dst_addr_p_length=32, port=DEV_PORT[8], dst_mac=H8_MAC, src_mac=EDGE4_MAC)
-print("  Edge 4: ports 7,8 not enabled - skipped")
+# Edge 4 主机
+local_forward_table.add_with_forward_local(dst_addr=0xAC040102, dst_addr_p_length=32, port=DEV_PORT[7], dst_mac=H7_MAC, src_mac=EDGE4_MAC)  # 172.4.1.2
+local_forward_table.add_with_forward_local(dst_addr=0xAC040103, dst_addr_p_length=32, port=DEV_PORT[8], dst_mac=H8_MAC, src_mac=EDGE4_MAC)  # 172.4.1.3
+print("  172.4.1.2 -> P7 (DEV_PORT %d), 172.4.1.3 -> P8 (DEV_PORT %d)" % (DEV_PORT[7], DEV_PORT[8]))
 
 print("")
 
@@ -245,10 +246,3 @@ print("")
 
 print("\n" + "="*60)
 print("  Setup Complete!")
-print("="*60)
-print("""
-测试方法:
-  1. 配置主机 IP 和网关
-  2. 从 h1 ping h2 (同 Edge): ping 172.1.1.3
-  3. 从 h1 ping h5 (跨 Edge): ping 172.3.1.2
-""")
