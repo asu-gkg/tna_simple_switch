@@ -199,56 +199,6 @@ BSPless 模式用于直接访问 Tofino 硬件，无需完整的 Board Support P
 | `pipe_scope: [0, 1, 2, 3]` | 使用所有 4 个流水线（Tofino 硬件最大支持 4 个） |
 | `board-port-map` | 端口映射文件，Wedge100BF-32X 使用 `accton_wedge_32x_port_map.json` |
 
-> **注意**：`pipe_scope: [0, 1, 2, 3]` 已经是 Tofino 芯片的最大配置。Tofino 硬件只有 4 个流水线，这是芯片架构限制，不是软件配置限制。
-
-### 创建配置文件
-
-创建文件 `$SDE_INSTALL/share/p4/targets/tofino/tna_simple_switch-bspless.conf`：
-
-```bash
-cat > $SDE_INSTALL/share/p4/targets/tofino/tna_simple_switch-bspless.conf << 'EOF'
-{
-    "chip_list": [
-        {
-            "id": "asic-0",
-            "chip_family": "tofino",
-            "instance": 0,
-            "pcie_sysfs_prefix": "/sys/devices/pci0000:00/0000:00:03.0/0000:06:00.0",
-            "pcie_domain": 0,
-            "pcie_bus": 6,
-            "pcie_fn": 0,
-            "pcie_dev": 0,
-            "pcie_int_mode": 1,
-            "sds_fw_path": "share/tofino_sds_fw/avago/firmware"
-        }
-    ],
-    "instance": 0,
-    "p4_devices": [
-        {
-            "device-id": 0,
-            "p4_programs": [
-                {
-                    "program-name": "tna_simple_switch",
-                    "bfrt-config": "share/tofinopd/tna_simple_switch/bf-rt.json",
-                    "p4_pipelines": [
-                        {
-                            "p4_pipeline_name": "pipe",
-                            "context": "share/tofinopd/tna_simple_switch/pipe/context.json",
-                            "config": "share/tofinopd/tna_simple_switch/pipe/tofino.bin",
-                            "pipe_scope": [0, 1, 2, 3],
-                            "path": "share/tofinopd/tna_simple_switch"
-                        }
-                    ]
-                }
-            ],
-            "agent0": "lib/libpltfm_mgr.so",
-            "board-port-map": "share/bf_switchd/accton_wedge_32x_port_map.json"
-        }
-    ]
-}
-EOF
-```
-
 ---
 
 ## 运行 P4 程序（Tofino 硬件）
