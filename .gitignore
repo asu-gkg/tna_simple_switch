@@ -1,0 +1,39 @@
+# P4 编译产物
+*.bin
+*.json
+context.json
+bf-rt.json
+
+# 编译输出目录
+build/
+install/
+*.log
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.bak
+*.orig
+
