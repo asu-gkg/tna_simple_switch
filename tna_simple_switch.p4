@@ -807,7 +807,7 @@ control SwitchIngress(
             NoAction;
         }
         const default_action = NoAction;
-        size = 16;
+        size = 32;
     }
 
 //-----------------------------------------------------------------------------

@@ -271,64 +271,6 @@ $SDE/run_bfshell.sh
 $SDE/run_bfshell.sh -b /path/to/your/setup_script.py
 ```
 
----
-
-## 配置 ARP 表
-
-### 方法一：使用配置脚本（推荐）
-
-1. 先编辑脚本，配置交换机的 IP 和 MAC：
-
-```bash
-vim /home/asu/p4proj/tna_simple_switch/arp_setup.py
-```
-
-修改 `SWITCH_INTERFACES` 配置：
-
-```python
-SWITCH_INTERFACES = [
-    # (IP 地址十六进制, MAC 地址十六进制)
-    (0x0A000001, 0x001111111111),   # 10.0.0.1 -> 00:11:11:11:11:11
-]
-```
-
-2. 执行脚本：
-
-```bash
-$SDE/run_bfshell.sh -b /home/asu/p4proj/tna_simple_switch/arp_setup.py
-```
-
-### 方法二：在 bfrt_python 中手动配置
-
-```bash
-$SDE/run_bfshell.sh
-```
-
-然后在 `bfshell>` 中输入：
-
-```
-bfrt_python
-```
-
-在 Python 环境中执行：
-
-```python
-# 获取 ARP 表
-p4 = bfrt.tna_simple_switch.pipe
-arp_table = p4.SwitchIngress.arp_reply_table
-
-# 添加 ARP 表项：当查询 10.0.0.1 时，返回 MAC 00:11:11:11:11:11
-arp_table.add_with_do_arp_reply(
-    tpa=0x0A000001,       # 10.0.0.1
-    my_mac=0x001111111111  # 00:11:11:11:11:11
-)
-
-# 查看表项
-arp_table.dump(table=True)
-```
-
----
-
 ## 测试 ARP 功能
 
 ### 步骤 1：在主机上发送 ARP 请求

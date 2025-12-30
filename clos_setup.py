@@ -182,6 +182,24 @@ arp_table.add_with_do_arp_reply(tpa=0xAC040101, my_mac=EDGE4_MAC)
 arp_table.add_with_do_arp_reply(tpa=0xAC040102, my_mac=EDGE4_MAC)
 arp_table.add_with_do_arp_reply(tpa=0xAC040103, my_mac=EDGE4_MAC)
 
+# Underlay Proxy ARP for Spine next-hops (172.16.x.0 and 172.16.x.2)
+
+# Edge 1 underlay
+arp_table.add_with_do_arp_reply(tpa=0xAC100100, my_mac=EDGE1_MAC)  # 172.16.1.0
+arp_table.add_with_do_arp_reply(tpa=0xAC100102, my_mac=EDGE1_MAC)  # 172.16.1.2
+
+# Edge 2 underlay
+arp_table.add_with_do_arp_reply(tpa=0xAC100200, my_mac=EDGE2_MAC)  # 172.16.2.0
+arp_table.add_with_do_arp_reply(tpa=0xAC100202, my_mac=EDGE2_MAC)  # 172.16.2.2
+
+# Edge 3 underlay
+arp_table.add_with_do_arp_reply(tpa=0xAC100300, my_mac=EDGE3_MAC)  # 172.16.3.0
+arp_table.add_with_do_arp_reply(tpa=0xAC100302, my_mac=EDGE3_MAC)  # 172.16.3.2
+
+# Edge 4 underlay
+arp_table.add_with_do_arp_reply(tpa=0xAC100400, my_mac=EDGE4_MAC)  # 172.16.4.0
+arp_table.add_with_do_arp_reply(tpa=0xAC100402, my_mac=EDGE4_MAC)  # 172.16.4.2
+
 print("  Proxy ARP enabled for all hosts (172.x.1.1-3)")
 
 print("")
@@ -194,8 +212,10 @@ print("Configuring ECMP uplink table (ActionSelector)")
 print("="*60)
 
 # Spine MAC 地址
-SPINE1_MAC = 0x002222220001
-SPINE2_MAC = 0x002222220002
+SPINE1_MAC = 0x0090fb64cd44
+SPINE2_MAC = 0x0090fb64cd44
+
+# SPINE2_MAC = 0x0090fb64cd44
 
 # Step 1: 创建 members (每个上行端口一个 member)
 print("Step 1: Creating ECMP members...")
