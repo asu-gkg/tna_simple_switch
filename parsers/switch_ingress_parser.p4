@@ -32,6 +32,25 @@ parser SwitchIngressParser(
     TofinoIngressParser() tofino_parser;
 
     state start {
+        // Initialize all metadata fields to avoid uninitialized warnings
+        ig_md.checksum_err = false;
+        ig_md.bd = 0;
+        ig_md.vrf = 0;
+        ig_md.nexthop = 0;
+        ig_md.ifindex = 0;
+        ig_md.egress_ifindex = 0;
+        ig_md.bypass = 0;
+        ig_md.src_edge = 0;
+        ig_md.dst_edge = 0;
+        ig_md.port_type = 0;
+        ig_md.flow_hash = 0;
+        ig_md.current_timestamp = 0;
+        ig_md.last_seen_timestamp = 0;
+        ig_md.flowlet_gap = 0;
+        ig_md.flowlet_id = 0;
+        ig_md.is_new_flowlet = false;
+        ig_md.selected_path = 0;
+
         tofino_parser.apply(pkt, ig_intr_md);
         transition parse_ethernet;
     }
