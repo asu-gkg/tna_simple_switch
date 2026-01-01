@@ -71,9 +71,12 @@ control SwitchIngress(
 
         pkt_validation.apply(hdr, lkp);
 
-        clos.apply(lkp, hdr, ig_md, ig_intr_md.ingress_port, ig_tm_md.ucast_egress_port, ig_dprsr_md, ig_intr_md);
+        PortId_t egress_port = 0;  // Local variable for CLOS forwarding
+        clos.apply(lkp, hdr, ig_md, ig_intr_md.ingress_port, egress_port, ig_dprsr_md, ig_intr_md);
 
+        // If CLOS forwarding handled the packet, set the egress port
         if (ig_md.port_type != PORT_TYPE_UNKNOWN) {
+            ig_tm_md.ucast_egress_port = egress_port;
             return;
         }
 

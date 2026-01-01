@@ -56,6 +56,19 @@ control PktValidation(
     }
 
     apply {
+        // Initialize all lookup fields to avoid uninitialized warnings
+        lkp.mac_src_addr = 0;
+        lkp.mac_dst_addr = 0;
+        lkp.mac_type = 0;
+        lkp.ip_version = 0;
+        lkp.ip_proto = 0;
+        lkp.ip_ttl = 0;
+        lkp.ip_dscp = 0;
+        lkp.ipv4_src_addr = 0;
+        lkp.ipv4_dst_addr = 0;
+        lkp.l4_src_port = 0;
+        lkp.l4_dst_port = 0;
+
         validate_ethernet.apply();
         if (hdr.ipv4.isValid()) {
             validate_ipv4.apply();

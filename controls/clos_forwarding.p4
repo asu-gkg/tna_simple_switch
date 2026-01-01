@@ -223,20 +223,15 @@ control ClosForwarding(
 
                 // Step 2: 根据是否新flowlet选择转发策略
                 if (ig_md.is_new_flowlet) {
-                    // 新flowlet：重新进行ECMP选择
-                    if (flowlet_uplink.apply().hit) {
-                        // 保存新选择的路径
-                        ig_md.selected_path = get_set_path.execute(ig_md.flow_hash);
-                    }
+                    // 新flowlet：重新进行ECMP选择并保存路径
+                    flowlet_uplink.apply();
+                    // 保存新选择的路径
+                    get_set_path.execute(ig_md.flow_hash);
                 } else {
                     // 同一flowlet：使用之前保存的路径
                     ig_md.selected_path = get_set_path.execute(ig_md.flow_hash);
-
                     // 根据保存的路径进行转发
-                    if (!saved_path_uplink.apply().hit) {
-                        // 如果保存的路径表没有匹配，退回到flowlet ECMP
-                        flowlet_uplink.apply();
-                    }
+                    saved_path_uplink.apply();
                 }
             }
         } else if (ig_md.port_type == PORT_TYPE_UPLINK) {

@@ -12,7 +12,9 @@ control FIB(
         nexthop = nexthop_index;
     }
 
-    action fib_miss() { }
+    action fib_miss() {
+        nexthop = 0;  // Initialize to default value
+    }
 
     table fib {
         key = {

@@ -12,7 +12,9 @@ control LAG(
         egress_port = port;
     }
 
-    action lag_miss() { }
+    action lag_miss() {
+        egress_port = 0;  // Initialize to default value
+    }
 
     table lag {
         key = {
