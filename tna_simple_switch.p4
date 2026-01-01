@@ -19,11 +19,7 @@
  ******************************************************************************/
 
 #include <core.p4>
-#if __TARGET_TOFINO__ == 2
-#include <t2na.p4>
-#else
 #include <tna.p4>
-#endif
 #include "headers.p4"
 
 // Common types
@@ -55,16 +51,6 @@ const port_type_t PORT_TYPE_UNKNOWN = 0;
 const port_type_t PORT_TYPE_DOWNLINK = 1;  // 下行端口（连主机）
 const port_type_t PORT_TYPE_UPLINK = 2;    // 上行端口（连Spine）
 
-typedef bit<128> srv6_sid_t;
-struct srv6_metadata_t {
-    srv6_sid_t sid; // SRH[SL]
-    bit<16> rewrite; // Rewrite index
-    bool psp; // Penultimate Segment Pop
-    bool usp; // Ultimate Segment Pop
-    bool decap;
-    bool encap;
-}
-
 struct ingress_metadata_t {
     bool checksum_err;
     bd_t bd;
@@ -73,7 +59,6 @@ struct ingress_metadata_t {
     ifindex_t ifindex;
     ifindex_t egress_ifindex;
     bypass_t bypass;
-    srv6_metadata_t srv6;
     // Clos topology fields
     edge_id_t src_edge;       // 入端口所属的逻辑 Edge
     edge_id_t dst_edge;       // 目的 IP 所属的逻辑 Edge
@@ -81,17 +66,7 @@ struct ingress_metadata_t {
 }
 
 struct egress_metadata_t {
-    srv6_metadata_t srv6;
-}
-
-header bridged_metadata_t {
-    // user-defined metadata carried over from ingress to egress.
-    bit<16> rewrite;
-    bit<1> psp; // Penultimate Segment Pop
-    bit<1> usp; // Ultimate Segment Pop
-    bit<1> decap;
-    bit<1> encap;
-    bit<4> pad;
+    // Empty for now
 }
 
 struct lookup_fields_t {
@@ -104,42 +79,25 @@ struct lookup_fields_t {
     bit<8> ip_ttl;
     bit<8> ip_dscp;
 
-    bit<20> ipv6_flow_label;
     ipv4_addr_t ipv4_src_addr;
     ipv4_addr_t ipv4_dst_addr;
-    ipv6_addr_t ipv6_src_addr;
-    ipv6_addr_t ipv6_dst_addr;
     // L4 ports for 5-tuple ECMP hash
     bit<16> l4_src_port;
     bit<16> l4_dst_port;
 }
 
 struct header_t {
-    bridged_metadata_t bridged_md;
     ethernet_h ethernet;
-    vlan_tag_h vlan_tag;
     ipv4_h ipv4;
-    ipv6_h ipv6;
     arp_h arp;
-    srh_h srh;
-    srh_segment_list_t[5] srh_segment_list;
     tcp_h tcp;
     udp_h udp;
-    gtpu_h gtpu;
-    ethernet_h inner_ethernet;
-    ipv6_h inner_ipv6;
-    srh_h inner_srh;
-    srh_segment_list_t[5] inner_srh_segment_list;
-    ipv4_h inner_ipv4;
-    tcp_h inner_tcp;
-    udp_h inner_udp;
 
     // Add more headers here.
 }
 
 
 #include "parde.p4"
-#include "srv6.p4"
 
 
 //-----------------------------------------------------------------------------
@@ -161,23 +119,15 @@ control PktValidation(
         lkp.mac_type = hdr.ethernet.ether_type;
     }
 
-    action valid_pkt_tagged() {
-        lkp.mac_src_addr = hdr.ethernet.src_addr;
-        lkp.mac_dst_addr = hdr.ethernet.dst_addr;
-        lkp.mac_type = hdr.vlan_tag.ether_type;
-    }
-
     table validate_ethernet {
         key = {
             hdr.ethernet.src_addr : ternary;
             hdr.ethernet.dst_addr : ternary;
-            hdr.vlan_tag.isValid() : ternary;
         }
 
         actions = {
             malformed_pkt;
             valid_pkt_untagged;
-            valid_pkt_tagged;
         }
 
         size = table_size;
@@ -213,40 +163,10 @@ control PktValidation(
         size = table_size;
     }
 
-//-----------------------------------------------------------------------------
-// Validate outer IPv6 header and set the lookup fields.
-// - Drop the packet if hop_limit is zero or version is invalid.
-//-----------------------------------------------------------------------------
-    action valid_ipv6_pkt() {
-        // Set common lookup fields
-        lkp.ip_version = 4w6;
-        lkp.ip_dscp = hdr.ipv6.traffic_class;
-        lkp.ip_proto = hdr.ipv6.next_hdr;
-        lkp.ip_ttl = hdr.ipv6.hop_limit;
-        lkp.ipv6_src_addr = hdr.ipv6.src_addr;
-        lkp.ipv6_dst_addr = hdr.ipv6.dst_addr;
-    }
-
-    table validate_ipv6 {
-        key = {
-            hdr.ipv6.version : ternary;
-            hdr.ipv6.hop_limit : ternary;
-        }
-
-        actions = {
-            valid_ipv6_pkt;
-            malformed_pkt;
-        }
-
-        size = table_size;
-    }
-
     apply {
         validate_ethernet.apply();
         if (hdr.ipv4.isValid()) {
             validate_ipv4.apply();
-        } else if (hdr.ipv6.isValid()) {
-            validate_ipv6.apply();
         }
         // Extract L4 ports for 5-tuple ECMP hash
         if (hdr.tcp.isValid()) {
@@ -264,9 +184,8 @@ control PktValidation(
 
 control PortMapping(
         in PortId_t port,
-        in vlan_tag_h vlan_tag,
         inout ingress_metadata_t ig_md)(
-        bit<32> port_vlan_table_size,
+        bit<32> port_table_size,
         bit<32> bd_table_size) {
 
     ActionProfile(bd_table_size) bd_action_profile;
@@ -287,11 +206,9 @@ control PortMapping(
         ig_md.vrf = vrf;
     }
 
-    table port_vlan_to_bd_mapping {
+    table port_to_bd_mapping {
         key = {
             ig_md.ifindex : exact;
-            vlan_tag.isValid() : ternary;
-            vlan_tag.vid : ternary;
         }
 
         actions = {
@@ -301,12 +218,12 @@ control PortMapping(
 
         const default_action = NoAction;
         implementation = bd_action_profile;
-        size = port_vlan_table_size;
+        size = port_table_size;
     }
 
     apply {
         port_mapping.apply();
-        port_vlan_to_bd_mapping.apply();
+        port_to_bd_mapping.apply();
     }
 }
 
@@ -398,55 +315,6 @@ control FIB(in ipv4_addr_t dst_addr,
     }
 }
 
-control FIBv6(in ipv6_addr_t dst_addr,
-              in vrf_t vrf,
-              out nexthop_t nexthop)(
-              bit<32> host_table_size,
-              bit<32> lpm_table_size) {
-
-    action fib_hit(nexthop_t nexthop_index) {
-        nexthop = nexthop_index;
-    }
-
-    action fib_miss() { }
-
-    table fib {
-        key = {
-            vrf : exact;
-            dst_addr : exact;
-        }
-
-        actions = {
-            fib_miss;
-            fib_hit;
-        }
-
-        const default_action = fib_miss;
-        size = host_table_size;
-    }
-
-    table fib_lpm {
-        key = {
-            vrf : exact;
-            dst_addr : lpm;
-        }
-
-        actions = {
-            fib_miss;
-            fib_hit;
-        }
-
-        const default_action = fib_miss;
-        size = lpm_table_size;
-    }
-
-    apply {
-        if (!fib.apply().hit) {
-            fib_lpm.apply();
-        }
-    }
-}
-
 // ----------------------------------------------------------------------------
 // Nexthop/ECMP resolution
 // ----------------------------------------------------------------------------
@@ -468,11 +336,11 @@ control Nexthop(in lookup_fields_t lkp,
     table ecmp {
         key = {
             ig_md.nexthop : exact;
-            lkp.ipv6_src_addr : selector;
-            lkp.ipv6_dst_addr : selector;
-            lkp.ipv6_flow_label : selector;
             lkp.ipv4_src_addr : selector;
             lkp.ipv4_dst_addr : selector;
+            lkp.ip_proto : selector;
+            lkp.l4_src_port : selector;
+            lkp.l4_dst_port : selector;
         }
 
         actions = {
@@ -503,24 +371,17 @@ control Nexthop(in lookup_fields_t lkp,
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
-    action rewrite_ipv6() {
-        hdr.ipv6.hop_limit = hdr.ipv6.hop_limit - 1;
-    }
-
     table ip_rewrite {
         key = {
             hdr.ipv4.isValid() : exact;
-            hdr.ipv6.isValid() : exact;
         }
 
         actions = {
             rewrite_ipv4;
-            rewrite_ipv6;
         }
 
         const entries = {
-            (true, false) : rewrite_ipv4();
-            (false, true) : rewrite_ipv6();
+            true : rewrite_ipv4();
         }
     }
 
@@ -571,11 +432,11 @@ control LAG(in lookup_fields_t lkp,
     table lag {
         key = {
             ifindex : exact;
-            lkp.ipv6_src_addr : selector;
-            lkp.ipv6_dst_addr : selector;
-            lkp.ipv6_flow_label : selector;
             lkp.ipv4_src_addr : selector;
             lkp.ipv4_dst_addr : selector;
+            lkp.ip_proto : selector;
+            lkp.l4_src_port : selector;
+            lkp.l4_dst_port : selector;
         }
 
         actions = {
@@ -764,24 +625,13 @@ control SwitchIngress(
 
     PortMapping(1024, 1024) port_mapping;
     PktValidation() pkt_validation;
-    SRv6() srv6;
     MAC(1024) mac;
     FIB(1024, 1024) fib;
-    FIBv6(1024, 1024) fibv6;
     Nexthop(1024) nexthop;
     LAG() lag;
     ClosForwarding() clos;  // Clos 拓扑转发
 
     lookup_fields_t lkp;
-
-    action add_bridged_md() {
-        hdr.bridged_md.setValid();
-        hdr.bridged_md.rewrite = ig_md.srv6.rewrite;
-        hdr.bridged_md.psp = (bit<1>) ig_md.srv6.psp;
-        hdr.bridged_md.usp = (bit<1>) ig_md.srv6.usp;
-        hdr.bridged_md.decap = (bit<1>) ig_md.srv6.decap;
-        hdr.bridged_md.encap = (bit<1>) ig_md.srv6.encap;
-    }
 
     action do_arp_reply(mac_addr_t my_mac) {
         mac_addr_t temp_mac = hdr.ethernet.dst_addr;
@@ -834,7 +684,6 @@ control SwitchIngress(
         if (hdr.arp.isValid() && hdr.arp.oper == ARP_REQUEST) {
             if (arp_reply_table.apply().hit) {
                 ig_tm_md.ucast_egress_port = ig_intr_md.ingress_port;
-                add_bridged_md();
                 return;
             }
         }
@@ -850,22 +699,18 @@ control SwitchIngress(
         
         // 如果 Clos 转发设置了出端口，则跳过原有路由逻辑
         if (ig_md.port_type != PORT_TYPE_UNKNOWN) {
-            add_bridged_md();
             return;
         }
 
         // =================================================================
         // 原有路由逻辑（用于非 Clos 端口的流量）
         // =================================================================
-        port_mapping.apply(ig_intr_md.ingress_port, hdr.vlan_tag, ig_md);
+        port_mapping.apply(ig_intr_md.ingress_port, ig_md);
         switch (rmac.apply().action_run) {
             rmac_hit : {
-                srv6.apply(hdr, ig_md, lkp);
                 if (!BYPASS(L3)) {
                     if (lkp.ip_version == 4w4) {
                         fib.apply(lkp.ipv4_dst_addr, ig_md.vrf, ig_md.nexthop);
-                    } else {
-                        fibv6.apply(lkp.ipv6_dst_addr, ig_md.vrf, ig_md.nexthop);
                     }
                 }
             }
@@ -877,8 +722,6 @@ control SwitchIngress(
         }
 
         lag.apply(lkp, ig_md.egress_ifindex, ig_tm_md.ucast_egress_port);
-
-        add_bridged_md();
     }
 }
 
@@ -889,12 +732,9 @@ control SwitchEgress(
         in egress_intrinsic_metadata_from_parser_t eg_intr_from_prsr,
         inout egress_intrinsic_metadata_for_deparser_t eg_intr_md_for_dprsr,
         inout egress_intrinsic_metadata_for_output_port_t eg_intr_md_for_oport) {
-    SRv6Decap() decap;
-    SRv6Encap() encap;
 
     apply {
-        decap.apply(eg_md.srv6, hdr);
-        encap.apply(eg_md.srv6, hdr);
+        // Empty for now - all processing done in ingress
     }
 }
 

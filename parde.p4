@@ -73,18 +73,6 @@ parser SwitchIngressParser(
         pkt.extract(hdr.ethernet);
         transition select(hdr.ethernet.ether_type) {
             ETHERTYPE_IPV4 : parse_ipv4;
-            ETHERTYPE_IPV6 : parse_ipv6;
-            ETHERTYPE_VLAN : parse_vlan;
-            ETHERTYPE_ARP : parse_arp;
-            default : accept;
-        }
-    }
-
-    state parse_vlan {
-        pkt.extract(hdr.vlan_tag);
-        transition select(hdr.vlan_tag.ether_type) {
-            ETHERTYPE_IPV4 : parse_ipv4;
-            ETHERTYPE_IPV6 : parse_ipv6;
             ETHERTYPE_ARP : parse_arp;
             default : accept;
         }
@@ -101,126 +89,18 @@ parser SwitchIngressParser(
         }
     }
 
-    state parse_ipv6 {
-        pkt.extract(hdr.ipv6);
-        transition select(hdr.ipv6.next_hdr) {
-            IP_PROTOCOLS_TCP : parse_tcp;
-            IP_PROTOCOLS_UDP : parse_udp;
-            IP_PROTOCOLS_SRV6 : parse_srh;
-            IP_PROTOCOLS_IPV6 : parse_inner_ipv6;
-            IP_PROTOCOLS_IPV4 : parse_inner_ipv4;
-            default : accept;
-        }
-    }
-
     state parse_arp {
         pkt.extract(hdr.arp);
         transition accept;
     }
 
-    state parse_srh {
-        pkt.extract(hdr.srh);
-        transition parse_srh_segment_0;
-    }
-
-//FIXME(msharif): ig_md.srv6.sid is NOT set correctly.
-#define IG_PARSE_SRH_SEGMENT(curr, next)                                    \
-    state parse_srh_segment_##curr {                                        \
-        pkt.extract(hdr.srh_segment_list[curr]);                            \
-        transition select(hdr.srh.last_entry) {                             \
-            curr : parse_srh_next_header;                                   \
-            /* (_, next) :  set_active_segment_##curr;*/                    \
-            default : parse_srh_segment_##next;                             \
-        }                                                                   \
-    }                                                                       \
-                                                                            \
-    state set_active_segment_##curr {                                       \
-        /* ig_md.srv6.sid = hdr.srh_segment_list[curr].sid; */              \
-        transition parse_srh_segment_##next;                                \
-    }
-
-IG_PARSE_SRH_SEGMENT(0, 1)
-IG_PARSE_SRH_SEGMENT(1, 2)
-IG_PARSE_SRH_SEGMENT(2, 3)
-IG_PARSE_SRH_SEGMENT(3, 4)
-
-    state parse_srh_segment_4 {
-        pkt.extract(hdr.srh_segment_list[4]);
-        transition parse_srh_next_header;
-    }
-
-    state set_active_segment_4 {
-        ig_md.srv6.sid = hdr.srh_segment_list[4].sid;
-        transition parse_srh_next_header;
-    }
-
-    state parse_srh_next_header {
-        transition select(hdr.srh.next_hdr) {
-            IP_PROTOCOLS_IPV6 : parse_inner_ipv6;
-            IP_PROTOCOLS_IPV4 : parse_inner_ipv4;
-            IP_PROTOCOLS_SRV6 : parse_inner_srh;
-            IP_PROTOCOLS_NONXT : accept;
-            default : reject;
-        }
-    }
-
     state parse_udp {
         pkt.extract(hdr.udp);
-        transition select(hdr.udp.dst_port) {
-            UDP_PORT_GTPU: parse_gtpu;
-            default: accept;
-        }
+        transition accept;
     }
 
     state parse_tcp {
         pkt.extract(hdr.tcp);
-        transition accept;
-    }
-
-
-    state parse_gtpu {
-        pkt.extract(hdr.gtpu);
-        bit<4> version = pkt.lookahead<bit<4>>();
-        transition select(version) {
-            4w4 : parse_inner_ipv4;
-            4w6 : parse_inner_ipv6;
-        }
-    }
-
-
-    state parse_inner_ipv4 {
-        pkt.extract(hdr.inner_ipv4);
-        transition select(hdr.inner_ipv4.protocol) {
-            IP_PROTOCOLS_TCP : parse_inner_tcp;
-            IP_PROTOCOLS_UDP : parse_inner_udp;
-            default : accept;
-        }
-    }
-
-    state parse_inner_ipv6 {
-        pkt.extract(hdr.inner_ipv6);
-        transition select(hdr.inner_ipv6.next_hdr) {
-            IP_PROTOCOLS_TCP : parse_inner_tcp;
-            IP_PROTOCOLS_UDP : parse_inner_udp;
-            IP_PROTOCOLS_SRV6 : parse_inner_srh;
-            default : accept;
-        }
-    }
-
-    state parse_inner_srh {
-        pkt.extract(hdr.inner_srh);
-        transition accept;
-    }
-
-    state parse_inner_udp {
-        pkt.extract(hdr.inner_udp);
-        transition select(hdr.inner_udp.dst_port) {
-            default: accept;
-        }
-    }
-
-    state parse_inner_tcp {
-        pkt.extract(hdr.inner_tcp);
         transition accept;
     }
 }
@@ -234,22 +114,11 @@ control SwitchIngressDeparser(
         in ingress_metadata_t ig_md,
         in ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md) {
     apply {
-        pkt.emit(hdr.bridged_md);
         pkt.emit(hdr.ethernet);
         pkt.emit(hdr.arp);
         pkt.emit(hdr.ipv4);
-        pkt.emit(hdr.ipv6);
-        pkt.emit(hdr.srh);
-        pkt.emit(hdr.srh_segment_list);
-        pkt.emit(hdr.udp);
         pkt.emit(hdr.tcp);
-        pkt.emit(hdr.gtpu);
-        pkt.emit(hdr.inner_ipv4);
-        pkt.emit(hdr.inner_ipv6);
-        pkt.emit(hdr.inner_srh);
-        pkt.emit(hdr.inner_srh_segment_list);
-        pkt.emit(hdr.inner_udp);
-        pkt.emit(hdr.inner_tcp);
+        pkt.emit(hdr.udp);
     }
 }
 
@@ -270,12 +139,6 @@ parser SwitchEgressParser(
     }
 
     state parse_bridged_metadata {
-        pkt.extract(hdr.bridged_md);
-        eg_md.srv6.rewrite = hdr.bridged_md.rewrite;
-        eg_md.srv6.psp = (bool) hdr.bridged_md.psp;
-        eg_md.srv6.usp = (bool) hdr.bridged_md.psp;
-        eg_md.srv6.encap = (bool) hdr.bridged_md.encap;
-        eg_md.srv6.decap = (bool) hdr.bridged_md.decap;
         transition parse_ethernet;
     }
 
@@ -283,18 +146,6 @@ parser SwitchEgressParser(
         pkt.extract(hdr.ethernet);
         transition select(hdr.ethernet.ether_type) {
             ETHERTYPE_IPV4 : parse_ipv4;
-            ETHERTYPE_IPV6 : parse_ipv6;
-            ETHERTYPE_VLAN : parse_vlan;
-            ETHERTYPE_ARP : parse_arp;
-            default : accept;
-        }
-    }
-
-    state parse_vlan {
-        pkt.extract(hdr.vlan_tag);
-        transition select(hdr.vlan_tag.ether_type) {
-            ETHERTYPE_IPV4 : parse_ipv4;
-            ETHERTYPE_IPV6 : parse_ipv6;
             ETHERTYPE_ARP : parse_arp;
             default : accept;
         }
@@ -308,101 +159,20 @@ parser SwitchEgressParser(
     state parse_ipv4 {
         pkt.extract(hdr.ipv4);
         transition select(hdr.ipv4.protocol) {
+            IP_PROTOCOLS_TCP : parse_tcp;
             IP_PROTOCOLS_UDP : parse_udp;
             default : accept;
         }
     }
 
-    state parse_ipv6 {
-        pkt.extract(hdr.ipv6);
-        transition select(hdr.ipv6.next_hdr) {
-            IP_PROTOCOLS_UDP : parse_udp;
-            IP_PROTOCOLS_SRV6 : parse_srh;
-            IP_PROTOCOLS_IPV6 : parse_inner_ipv6;
-            IP_PROTOCOLS_IPV4 : parse_inner_ipv4;
-            default : accept;
-        }
-    }
-
-    state parse_srh {
-        pkt.extract(hdr.srh);
-        transition parse_srh_segment_0;
-    }
-
-#define EG_PARSE_SRH_SEGMENT(curr, next)                                    \
-    state parse_srh_segment_##curr {                                        \
-        pkt.extract(hdr.srh_segment_list[curr]);                            \
-        transition select(hdr.srh.last_entry) {                             \
-            curr : parse_srh_next_header;                                   \
-            default : parse_srh_segment_##next;                             \
-        }                                                                   \
-    }
-
-EG_PARSE_SRH_SEGMENT(0, 1)
-EG_PARSE_SRH_SEGMENT(1, 2)
-EG_PARSE_SRH_SEGMENT(2, 3)
-EG_PARSE_SRH_SEGMENT(3, 4)
-
-    state parse_srh_segment_4 {
-        pkt.extract(hdr.srh_segment_list[4]);
-        transition parse_srh_next_header;
-    }
-
-    state parse_srh_next_header {
-        transition select(hdr.srh.next_hdr) {
-            IP_PROTOCOLS_IPV6 : parse_inner_ipv6;
-            IP_PROTOCOLS_IPV4 : parse_inner_ipv4;
-            IP_PROTOCOLS_SRV6 : parse_inner_srh;
-            IP_PROTOCOLS_NONXT : accept;
-            default : reject;
-        }
+    state parse_tcp {
+        pkt.extract(hdr.tcp);
+        transition accept;
     }
 
     state parse_udp {
         pkt.extract(hdr.udp);
-        transition select(hdr.udp.dst_port) {
-            UDP_PORT_GTPU: parse_gtpu;
-            default: accept;
-        }
-    }
-
-    state parse_gtpu {
-        pkt.extract(hdr.gtpu);
-        bit<4> version = pkt.lookahead<bit<4>>();
-        transition select(version) {
-            4w4 : parse_inner_ipv4;
-            4w6 : parse_inner_ipv6;
-        }
-    }
-
-
-    state parse_inner_ipv4 {
-        pkt.extract(hdr.inner_ipv4);
-        transition select(hdr.inner_ipv4.protocol) {
-            IP_PROTOCOLS_UDP : parse_inner_udp;
-            default : accept;
-        }
-    }
-
-    state parse_inner_ipv6 {
-        pkt.extract(hdr.inner_ipv6);
-        transition select(hdr.inner_ipv6.next_hdr) {
-            IP_PROTOCOLS_UDP : parse_inner_udp;
-            IP_PROTOCOLS_SRV6 : parse_inner_srh;
-            default : accept;
-        }
-    }
-
-    state parse_inner_srh {
-        pkt.extract(hdr.inner_srh);
         transition accept;
-    }
-
-    state parse_inner_udp {
-        pkt.extract(hdr.inner_udp);
-        transition select(hdr.inner_udp.dst_port) {
-            default: accept;
-        }
     }
 }
 
@@ -433,15 +203,7 @@ control SwitchEgressDeparser(
         pkt.emit(hdr.ethernet);
         pkt.emit(hdr.arp);
         pkt.emit(hdr.ipv4);
-        pkt.emit(hdr.ipv6);
-        pkt.emit(hdr.srh);
-        pkt.emit(hdr.srh_segment_list);
+        pkt.emit(hdr.tcp);
         pkt.emit(hdr.udp);
-        pkt.emit(hdr.gtpu);
-        pkt.emit(hdr.inner_ipv4);
-        pkt.emit(hdr.inner_ipv6);
-        pkt.emit(hdr.inner_srh);
-        pkt.emit(hdr.inner_srh_segment_list);
-        pkt.emit(hdr.inner_udp);
     }
 }
