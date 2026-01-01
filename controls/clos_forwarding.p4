@@ -14,13 +14,13 @@ control ClosForwarding(
     Hash<bit<32>>(HashAlgorithm_t.CRC32) flow_hash_calc;
 
     // Flowlet状态跟踪寄存器
-    Register<bit<48>, flow_hash_t>(32768) flowlet_last_seen;  // 上次包时间戳
+    Register<bit<64>, flow_hash_t>(32768) flowlet_last_seen;  // 上次包时间戳
     Register<flowlet_id_t, flow_hash_t>(32768) flowlet_counter; // flowlet计数器
     Register<path_id_t, flow_hash_t>(32768) flowlet_path;    // 当前路径
 
     // 更新时间戳并返回上次时间戳
-    RegisterAction<bit<48>, flow_hash_t, bit<48>>(flowlet_last_seen) update_timestamp = {
-        void apply(inout bit<48> value, out bit<48> result) {
+    RegisterAction<bit<64>, flow_hash_t, bit<64>>(flowlet_last_seen) update_timestamp = {
+        void apply(inout bit<64> value, out bit<64> result) {
             result = value;
             value = ig_md.current_timestamp;
         }
