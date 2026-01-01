@@ -71,7 +71,7 @@ control SwitchIngress(
 
         pkt_validation.apply(hdr, lkp);
 
-        clos.apply(lkp, hdr, ig_md, ig_intr_md.ingress_port, ig_tm_md.ucast_egress_port, ig_dprsr_md);
+        clos.apply(lkp, hdr, ig_md, ig_intr_md.ingress_port, ig_tm_md.ucast_egress_port, ig_dprsr_md, ig_intr_md);
 
         if (ig_md.port_type != PORT_TYPE_UNKNOWN) {
             return;

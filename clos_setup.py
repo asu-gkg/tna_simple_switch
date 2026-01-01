@@ -14,7 +14,8 @@ clos = p4.SwitchIngress.clos
 port_to_edge_table = clos.port_to_edge
 dst_to_edge_table = clos.dst_to_edge
 local_forward_table = clos.local_forward
-ecmp_uplink_table = clos.ecmp_uplink
+flowlet_uplink_table = clos.flowlet_uplink  # 改为flowlet表
+saved_path_uplink_table = clos.saved_path_uplink  # 添加保存路径表
 arp_table = p4.SwitchIngress.arp_reply_table
 
 # =============================================================================
@@ -25,14 +26,15 @@ print("  Clos Topology Setup for tna_simple_switch")
 print("="*60 + "\n")
 
 # ActionSelector 表引用（需要先获取才能清空）
-ecmp_selector = clos.clos_ecmp_selector
-ecmp_sel_grp = clos.clos_ecmp_selector_sel
+flowlet_ecmp_selector = clos.flowlet_ecmp_selector  # 改为flowlet selector
+flowlet_ecmp_sel_grp = clos.flowlet_ecmp_selector_sel  # 改为flowlet selector group
 
 print("Clearing tables...")
 try:
-    ecmp_uplink_table.clear()
-    ecmp_sel_grp.clear()
-    ecmp_selector.clear()
+    flowlet_uplink_table.clear()  # 改为flowlet表
+    saved_path_uplink_table.clear()  # 添加保存路径表清空
+    flowlet_ecmp_sel_grp.clear()  # 改为flowlet selector group
+    flowlet_ecmp_selector.clear()  # 改为flowlet selector
     port_to_edge_table.clear()
     dst_to_edge_table.clear()
     local_forward_table.clear()
@@ -205,10 +207,10 @@ print("  Proxy ARP enabled for all hosts (172.x.1.1-3)")
 print("")
 
 # =============================================================================
-# 配置 ECMP 上行表 (ActionSelector)
+# 配置 Flowlet 上行表 (ActionSelector)
 # =============================================================================
 print("="*60)
-print("Configuring ECMP uplink table (ActionSelector)")
+print("Configuring Flowlet uplink table (ActionSelector)")
 print("="*60)
 
 # Spine MAC 地址
@@ -218,51 +220,88 @@ SPINE2_MAC = 0x0090fb64cd44
 # SPINE2_MAC = 0x0090fb64cd44
 
 # Step 1: 创建 members (每个上行端口一个 member)
-print("Step 1: Creating ECMP members...")
+print("Step 1: Creating Flowlet ECMP members...")
 
 # Edge 1 members: P25 (Spine1), P26 (Spine2)
-ecmp_selector.add_with_set_uplink(action_member_id=11, port=DEV_PORT[25], spine_mac=SPINE1_MAC, edge_mac=EDGE1_MAC)
-ecmp_selector.add_with_set_uplink(action_member_id=12, port=DEV_PORT[26], spine_mac=SPINE2_MAC, edge_mac=EDGE1_MAC)
+flowlet_ecmp_selector.add_with_set_uplink(action_member_id=11, port=DEV_PORT[25], spine_mac=SPINE1_MAC, edge_mac=EDGE1_MAC)
+flowlet_ecmp_selector.add_with_set_uplink(action_member_id=12, port=DEV_PORT[26], spine_mac=SPINE2_MAC, edge_mac=EDGE1_MAC)
 print("  Edge 1: member 11 (P25->%d), member 12 (P26->%d)" % (DEV_PORT[25], DEV_PORT[26]))
 
 # Edge 2 members: P27 (Spine1), P28 (Spine2)
-ecmp_selector.add_with_set_uplink(action_member_id=21, port=DEV_PORT[27], spine_mac=SPINE1_MAC, edge_mac=EDGE2_MAC)
-ecmp_selector.add_with_set_uplink(action_member_id=22, port=DEV_PORT[28], spine_mac=SPINE2_MAC, edge_mac=EDGE2_MAC)
+flowlet_ecmp_selector.add_with_set_uplink(action_member_id=21, port=DEV_PORT[27], spine_mac=SPINE1_MAC, edge_mac=EDGE2_MAC)
+flowlet_ecmp_selector.add_with_set_uplink(action_member_id=22, port=DEV_PORT[28], spine_mac=SPINE2_MAC, edge_mac=EDGE2_MAC)
 print("  Edge 2: member 21 (P27->%d), member 22 (P28->%d)" % (DEV_PORT[27], DEV_PORT[28]))
 
 # Edge 3 members: P29 (Spine1), P30 (Spine2)
-ecmp_selector.add_with_set_uplink(action_member_id=31, port=DEV_PORT[29], spine_mac=SPINE1_MAC, edge_mac=EDGE3_MAC)
-ecmp_selector.add_with_set_uplink(action_member_id=32, port=DEV_PORT[30], spine_mac=SPINE2_MAC, edge_mac=EDGE3_MAC)
+flowlet_ecmp_selector.add_with_set_uplink(action_member_id=31, port=DEV_PORT[29], spine_mac=SPINE1_MAC, edge_mac=EDGE3_MAC)
+flowlet_ecmp_selector.add_with_set_uplink(action_member_id=32, port=DEV_PORT[30], spine_mac=SPINE2_MAC, edge_mac=EDGE3_MAC)
 print("  Edge 3: member 31 (P29->%d), member 32 (P30->%d)" % (DEV_PORT[29], DEV_PORT[30]))
 
 # Edge 4 members: P31 (Spine1), P32 (Spine2)
-ecmp_selector.add_with_set_uplink(action_member_id=41, port=DEV_PORT[31], spine_mac=SPINE1_MAC, edge_mac=EDGE4_MAC)
-ecmp_selector.add_with_set_uplink(action_member_id=42, port=DEV_PORT[32], spine_mac=SPINE2_MAC, edge_mac=EDGE4_MAC)
+flowlet_ecmp_selector.add_with_set_uplink(action_member_id=41, port=DEV_PORT[31], spine_mac=SPINE1_MAC, edge_mac=EDGE4_MAC)
+flowlet_ecmp_selector.add_with_set_uplink(action_member_id=42, port=DEV_PORT[32], spine_mac=SPINE2_MAC, edge_mac=EDGE4_MAC)
 print("  Edge 4: member 41 (P31->%d), member 42 (P32->%d)" % (DEV_PORT[31], DEV_PORT[32]))
 
 # Step 2: 创建 selector groups (每个 Edge 一个 group，包含 2 个 members)
-print("Step 2: Creating ECMP groups...")
+print("Step 2: Creating Flowlet ECMP groups...")
 
-ecmp_sel_grp.add(selector_group_id=1, action_member_id=[11, 12], action_member_status=[True, True], max_group_size=2)
-ecmp_sel_grp.add(selector_group_id=2, action_member_id=[21, 22], action_member_status=[True, True], max_group_size=2)
-ecmp_sel_grp.add(selector_group_id=3, action_member_id=[31, 32], action_member_status=[True, True], max_group_size=2)
-ecmp_sel_grp.add(selector_group_id=4, action_member_id=[41, 42], action_member_status=[True, True], max_group_size=2)
+flowlet_ecmp_sel_grp.add(selector_group_id=1, action_member_id=[11, 12], action_member_status=[True, True], max_group_size=2)
+flowlet_ecmp_sel_grp.add(selector_group_id=2, action_member_id=[21, 22], action_member_status=[True, True], max_group_size=2)
+flowlet_ecmp_sel_grp.add(selector_group_id=3, action_member_id=[31, 32], action_member_status=[True, True], max_group_size=2)
+flowlet_ecmp_sel_grp.add(selector_group_id=4, action_member_id=[41, 42], action_member_status=[True, True], max_group_size=2)
 print("  Created 4 groups: Group 1-4")
 
-# Step 3: 配置 ecmp_uplink 表，将每个 Edge 指向对应的 group
-print("Step 3: Configuring ecmp_uplink table entries...")
+# Step 3: 配置 flowlet_uplink 表，将每个 Edge 指向对应的 group
+print("Step 3: Configuring flowlet_uplink table entries...")
 
-ecmp_uplink_table.add(src_edge=1, selector_group_id=1)
-ecmp_uplink_table.add(src_edge=2, selector_group_id=2)
-ecmp_uplink_table.add(src_edge=3, selector_group_id=3)
-ecmp_uplink_table.add(src_edge=4, selector_group_id=4)
+flowlet_uplink_table.add(src_edge=1, selector_group_id=1)
+flowlet_uplink_table.add(src_edge=2, selector_group_id=2)
+flowlet_uplink_table.add(src_edge=3, selector_group_id=3)
+flowlet_uplink_table.add(src_edge=4, selector_group_id=4)
 
 print("  Edge 1 -> Group 1 (P25/Spine1, P26/Spine2)")
 print("  Edge 2 -> Group 2 (P27/Spine1, P28/Spine2)")
 print("  Edge 3 -> Group 3 (P29/Spine1, P30/Spine2)")
 print("  Edge 4 -> Group 4 (P31/Spine1, P32/Spine2)")
 
+# Step 4: 配置 saved_path_uplink 表 (用于同一flowlet内的路径复用)
+print("Step 4: Configuring saved_path_uplink table...")
+
+# 每个Edge配置两个可能的路径选择
+saved_path_uplink_table.add_with_forward_saved_path(
+    src_edge=1,
+    port1=DEV_PORT[25], spine_mac1=SPINE1_MAC, edge_mac1=EDGE1_MAC,
+    port2=DEV_PORT[26], spine_mac2=SPINE2_MAC, edge_mac2=EDGE1_MAC
+)
+
+saved_path_uplink_table.add_with_forward_saved_path(
+    src_edge=2,
+    port1=DEV_PORT[27], spine_mac1=SPINE1_MAC, edge_mac1=EDGE2_MAC,
+    port2=DEV_PORT[28], spine_mac2=SPINE2_MAC, edge_mac2=EDGE2_MAC
+)
+
+saved_path_uplink_table.add_with_forward_saved_path(
+    src_edge=3,
+    port1=DEV_PORT[29], spine_mac1=SPINE1_MAC, edge_mac1=EDGE3_MAC,
+    port2=DEV_PORT[30], spine_mac2=SPINE2_MAC, edge_mac2=EDGE3_MAC
+)
+
+saved_path_uplink_table.add_with_forward_saved_path(
+    src_edge=4,
+    port1=DEV_PORT[31], spine_mac1=SPINE1_MAC, edge_mac1=EDGE4_MAC,
+    port2=DEV_PORT[32], spine_mac2=SPINE2_MAC, edge_mac2=EDGE4_MAC
+)
+
+print("  Configured saved path table for all 4 edges")
+
 print("")
 
 print("\n" + "="*60)
-print("  Setup Complete!")
+print("  Flowlet-based Clos Setup Complete!")
+print("="*60)
+print("Features enabled:")
+print("  - Flowlet-aware load balancing (64μs timeout)")
+print("  - Per-flow path consistency within flowlets")
+print("  - Dynamic path re-selection between flowlets")
+print("  - Register-based flowlet state tracking")
+print("="*60)
