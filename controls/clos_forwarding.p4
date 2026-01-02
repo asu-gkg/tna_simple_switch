@@ -19,11 +19,24 @@ control ClosForwarding(
     Register<flowlet_id_t, flow_hash_t>(32768) flowlet_counter; // flowlet计数器
     Register<path_id_t, flow_hash_t>(32768) flowlet_path;    // 当前路径
 
-    // 更新时间戳并返回上次时间戳
-    RegisterAction<bit<32>, flow_hash_t, bit<32>>(flowlet_last_seen) update_timestamp = {
-        void apply(inout bit<32> value, out bit<32> result) {
-            result = value;
-            value = ig_md.current_timestamp;
+    // 检测是否新 flowlet 并更新时间戳
+    // 关键：在寄存器内完成超时判断，避免 control 层条件复杂度超限
+    RegisterAction<bit<32>, flow_hash_t, bit<1>>(flowlet_last_seen) check_and_update_flowlet = {
+        void apply(inout bit<32> last_ts, out bit<1> is_new) {
+            bit<32> gap;
+            gap = ig_md.current_timestamp - last_ts;
+            
+            // 首包（last_ts == 0）或超时都是新 flowlet
+            if (last_ts == 0) {
+                is_new = 1;
+            } else if (gap > FLOWLET_TIMEOUT) {
+                is_new = 1;
+            } else {
+                is_new = 0;
+            }
+            
+            // 更新时间戳
+            last_ts = ig_md.current_timestamp;
         }
     };
 
@@ -200,34 +213,19 @@ control ClosForwarding(
                 // 获取当前时间戳（取低 32 位）
                 ig_md.current_timestamp = (bit<32>) ig_intr_md.ingress_mac_tstamp;
 
-                // 获取上次包的时间戳并更新
-                ig_md.last_seen_timestamp = update_timestamp.execute(ig_md.flow_hash);
-
-                // 计算包间隔
-                ig_md.flowlet_gap = ig_md.current_timestamp - ig_md.last_seen_timestamp;
-
-                // 判断是否新flowlet + 为新 flowlet 分配 ID
-                // 目标对 if 条件的 PHV 输入宽度有限制：避免在同一个条件里做 OR
-                ig_md.is_new_flowlet = false;
-                if (ig_md.last_seen_timestamp == 32w0) {
-                    ig_md.is_new_flowlet = true;
-                } else if (ig_md.flowlet_gap > FLOWLET_TIMEOUT) {
-                    ig_md.is_new_flowlet = true;
-                }
-                if (ig_md.is_new_flowlet) {
+                // 在寄存器内完成 flowlet 检测（超时判断 + 更新时间戳）
+                // 返回 1-bit 标志，避免 control 层条件复杂度超限
+                bit<1> new_flowlet_flag = check_and_update_flowlet.execute(ig_md.flow_hash);
+                
+                // 根据标志选择转发策略（合并到单个 if-else 避免表依赖冲突）
+                if (new_flowlet_flag == 1w1) {
+                    // 新flowlet：分配ID，ECMP选择，保存路径
                     ig_md.flowlet_id = increment_flowlet.execute(ig_md.flow_hash);
-                }
-
-                // Step 2: 根据是否新flowlet选择转发策略
-                if (ig_md.is_new_flowlet) {
-                    // 新flowlet：重新进行ECMP选择并保存路径
                     flowlet_uplink.apply();
-                    // 保存新选择的路径
                     write_path.execute(ig_md.flow_hash);
                 } else {
-                    // 同一flowlet：使用之前保存的路径
+                    // 同一flowlet：读取保存的路径，转发
                     ig_md.selected_path = read_path.execute(ig_md.flow_hash);
-                    // 根据保存的路径进行转发
                     saved_path_uplink.apply();
                 }
             }
