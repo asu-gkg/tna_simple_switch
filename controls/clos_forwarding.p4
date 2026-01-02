@@ -14,6 +14,7 @@ control ClosForwarding(
     Hash<bit<32>>(HashAlgorithm_t.CRC32) flow_hash_calc;
 
     // Flowlet状态跟踪寄存器
+    // 注意：Tofino 的 Register 元素类型不支持 bit<48>，这里用 bit<64> 存放时间戳（低 48-bit 有效）
     Register<bit<64>, flow_hash_t>(32768) flowlet_last_seen;  // 上次包时间戳
     Register<flowlet_id_t, flow_hash_t>(32768) flowlet_counter; // flowlet计数器
     Register<path_id_t, flow_hash_t>(32768) flowlet_path;    // 当前路径
@@ -22,7 +23,7 @@ control ClosForwarding(
     RegisterAction<bit<64>, flow_hash_t, bit<64>>(flowlet_last_seen) update_timestamp = {
         void apply(inout bit<64> value, out bit<64> result) {
             result = value;
-            value = ig_md.current_timestamp;
+            value = (bit<64>) ig_md.current_timestamp;
         }
     };
 
@@ -34,45 +35,20 @@ control ClosForwarding(
         }
     };
 
-    // 获取或设置路径
-    RegisterAction<path_id_t, flow_hash_t, path_id_t>(flowlet_path) get_set_path = {
+    // 读取已保存路径
+    RegisterAction<path_id_t, flow_hash_t, path_id_t>(flowlet_path) read_path = {
         void apply(inout path_id_t value, out path_id_t result) {
-            if (ig_md.is_new_flowlet) {
-                value = ig_md.selected_path;
-            }
             result = value;
         }
     };
 
-    // Flowlet检测动作
-    action detect_flowlet() {
-        // 计算flow hash (基于5-tuple)
-        ig_md.flow_hash = flow_hash_calc.get({
-            lkp.ipv4_src_addr,
-            lkp.ipv4_dst_addr,
-            lkp.ip_proto,
-            lkp.l4_src_port,
-            lkp.l4_dst_port
-        });
-
-        // 获取当前时间戳
-        ig_md.current_timestamp = ig_intr_md.ingress_mac_tstamp;
-
-        // 获取上次包的时间戳并更新
-        ig_md.last_seen_timestamp = update_timestamp.execute(ig_md.flow_hash);
-
-        // 计算包间隔
-        ig_md.flowlet_gap = ig_md.current_timestamp - ig_md.last_seen_timestamp;
-
-        // 判断是否新flowlet
-        if (ig_md.flowlet_gap > FLOWLET_TIMEOUT || ig_md.last_seen_timestamp == 0) {
-            ig_md.is_new_flowlet = true;
-            // 为新flowlet分配ID
-            ig_md.flowlet_id = increment_flowlet.execute(ig_md.flow_hash);
-        } else {
-            ig_md.is_new_flowlet = false;
+    // 保存新选择的路径
+    RegisterAction<path_id_t, flow_hash_t, path_id_t>(flowlet_path) write_path = {
+        void apply(inout path_id_t value, out path_id_t result) {
+            value = ig_md.selected_path;
+            result = value;
         }
-    }
+    };
 
     action set_port_info(edge_id_t edge_id, port_type_t ptype) {
         ig_md.src_edge = edge_id;
@@ -174,18 +150,10 @@ control ClosForwarding(
     }
 
     // 基于已保存路径的转发动作
-    action forward_saved_path(PortId_t port1, mac_addr_t spine_mac1, mac_addr_t edge_mac1,
-                             PortId_t port2, mac_addr_t spine_mac2, mac_addr_t edge_mac2) {
-        // 根据保存的路径ID选择对应的端口
-        if (ig_md.selected_path == (path_id_t)(port1 & 0xFF)) {
-            egress_port = port1;
-            hdr.ethernet.dst_addr = spine_mac1;
-            hdr.ethernet.src_addr = edge_mac1;
-        } else {
-            egress_port = port2;
-            hdr.ethernet.dst_addr = spine_mac2;
-            hdr.ethernet.src_addr = edge_mac2;
-        }
+    action forward_saved_path(PortId_t port, mac_addr_t spine_mac, mac_addr_t edge_mac) {
+        egress_port = port;
+        hdr.ethernet.dst_addr = spine_mac;
+        hdr.ethernet.src_addr = edge_mac;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
@@ -193,13 +161,14 @@ control ClosForwarding(
     table saved_path_uplink {
         key = {
             ig_md.src_edge : exact;
+            ig_md.selected_path : exact;
         }
         actions = {
             forward_saved_path;
             ecmp_miss;
         }
         const default_action = ecmp_miss;
-        size = 16;
+        size = 32;
     }
 
     apply {
@@ -218,18 +187,42 @@ control ClosForwarding(
             } else {
                 // 跨Edge转发，使用flowlet逻辑
 
-                // Step 1: 执行flowlet检测
-                detect_flowlet();
+                // Step 1: 执行flowlet检测（在 control apply 中实现，避免 target 对 action 的限制）
+                // 计算flow hash (基于5-tuple)
+                ig_md.flow_hash = flow_hash_calc.get({
+                    lkp.ipv4_src_addr,
+                    lkp.ipv4_dst_addr,
+                    lkp.ip_proto,
+                    lkp.l4_src_port,
+                    lkp.l4_dst_port
+                });
+
+                // 获取当前时间戳
+                ig_md.current_timestamp = ig_intr_md.ingress_mac_tstamp;
+
+                // 获取上次包的时间戳并更新
+                ig_md.last_seen_timestamp = (bit<48>) update_timestamp.execute(ig_md.flow_hash);
+
+                // 计算包间隔
+                ig_md.flowlet_gap = ig_md.current_timestamp - ig_md.last_seen_timestamp;
+
+                // 判断是否新flowlet + 为新 flowlet 分配 ID
+                if (ig_md.flowlet_gap > FLOWLET_TIMEOUT || ig_md.last_seen_timestamp == 0) {
+                    ig_md.is_new_flowlet = true;
+                    ig_md.flowlet_id = increment_flowlet.execute(ig_md.flow_hash);
+                } else {
+                    ig_md.is_new_flowlet = false;
+                }
 
                 // Step 2: 根据是否新flowlet选择转发策略
                 if (ig_md.is_new_flowlet) {
                     // 新flowlet：重新进行ECMP选择并保存路径
                     flowlet_uplink.apply();
                     // 保存新选择的路径
-                    get_set_path.execute(ig_md.flow_hash);
+                    write_path.execute(ig_md.flow_hash);
                 } else {
                     // 同一flowlet：使用之前保存的路径
-                    ig_md.selected_path = get_set_path.execute(ig_md.flow_hash);
+                    ig_md.selected_path = read_path.execute(ig_md.flow_hash);
                     // 根据保存的路径进行转发
                     saved_path_uplink.apply();
                 }

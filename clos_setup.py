@@ -267,29 +267,56 @@ print("  Edge 4 -> Group 4 (P31/Spine1, P32/Spine2)")
 # Step 4: 配置 saved_path_uplink 表 (用于同一flowlet内的路径复用)
 print("Step 4: Configuring saved_path_uplink table...")
 
-# 每个Edge配置两个可能的路径选择
+# 每个 Edge 配置两条 entry：key = (src_edge, selected_path)，action 直接转发到对应 uplink
+def _path_id_from_port(dev_port):
+    return dev_port & 0xFF
+
+# Edge 1: P25/P26
 saved_path_uplink_table.add_with_forward_saved_path(
     src_edge=1,
-    port1=DEV_PORT[25], spine_mac1=SPINE1_MAC, edge_mac1=EDGE1_MAC,
-    port2=DEV_PORT[26], spine_mac2=SPINE2_MAC, edge_mac2=EDGE1_MAC
+    selected_path=_path_id_from_port(DEV_PORT[25]),
+    port=DEV_PORT[25], spine_mac=SPINE1_MAC, edge_mac=EDGE1_MAC
+)
+saved_path_uplink_table.add_with_forward_saved_path(
+    src_edge=1,
+    selected_path=_path_id_from_port(DEV_PORT[26]),
+    port=DEV_PORT[26], spine_mac=SPINE2_MAC, edge_mac=EDGE1_MAC
 )
 
+# Edge 2: P27/P28
 saved_path_uplink_table.add_with_forward_saved_path(
     src_edge=2,
-    port1=DEV_PORT[27], spine_mac1=SPINE1_MAC, edge_mac1=EDGE2_MAC,
-    port2=DEV_PORT[28], spine_mac2=SPINE2_MAC, edge_mac2=EDGE2_MAC
+    selected_path=_path_id_from_port(DEV_PORT[27]),
+    port=DEV_PORT[27], spine_mac=SPINE1_MAC, edge_mac=EDGE2_MAC
+)
+saved_path_uplink_table.add_with_forward_saved_path(
+    src_edge=2,
+    selected_path=_path_id_from_port(DEV_PORT[28]),
+    port=DEV_PORT[28], spine_mac=SPINE2_MAC, edge_mac=EDGE2_MAC
 )
 
+# Edge 3: P29/P30
 saved_path_uplink_table.add_with_forward_saved_path(
     src_edge=3,
-    port1=DEV_PORT[29], spine_mac1=SPINE1_MAC, edge_mac1=EDGE3_MAC,
-    port2=DEV_PORT[30], spine_mac2=SPINE2_MAC, edge_mac2=EDGE3_MAC
+    selected_path=_path_id_from_port(DEV_PORT[29]),
+    port=DEV_PORT[29], spine_mac=SPINE1_MAC, edge_mac=EDGE3_MAC
+)
+saved_path_uplink_table.add_with_forward_saved_path(
+    src_edge=3,
+    selected_path=_path_id_from_port(DEV_PORT[30]),
+    port=DEV_PORT[30], spine_mac=SPINE2_MAC, edge_mac=EDGE3_MAC
 )
 
+# Edge 4: P31/P32
 saved_path_uplink_table.add_with_forward_saved_path(
     src_edge=4,
-    port1=DEV_PORT[31], spine_mac1=SPINE1_MAC, edge_mac1=EDGE4_MAC,
-    port2=DEV_PORT[32], spine_mac2=SPINE2_MAC, edge_mac2=EDGE4_MAC
+    selected_path=_path_id_from_port(DEV_PORT[31]),
+    port=DEV_PORT[31], spine_mac=SPINE1_MAC, edge_mac=EDGE4_MAC
+)
+saved_path_uplink_table.add_with_forward_saved_path(
+    src_edge=4,
+    selected_path=_path_id_from_port(DEV_PORT[32]),
+    port=DEV_PORT[32], spine_mac=SPINE2_MAC, edge_mac=EDGE4_MAC
 )
 
 print("  Configured saved path table for all 4 edges")
