@@ -38,6 +38,85 @@ control SwitchIngress(
         }
     };
 
+    // === Clos Topology Tables ===
+
+    // Table 1: Port → Edge mapping
+    action set_port_info_clos(edge_id_t edge_id, port_type_t ptype) {
+        ig_md.src_edge = edge_id;
+        ig_md.port_type = ptype;
+    }
+
+    table port_to_edge {
+        key = { ig_intr_md.ingress_port : exact; }
+        actions = { set_port_info_clos; NoAction; }
+        const default_action = NoAction;
+        size = 64;
+    }
+
+    // Table 2: Destination IP → Edge (LPM)
+    action set_dst_edge(edge_id_t edge_id) {
+        ig_md.dst_edge = edge_id;
+    }
+
+    table dst_to_edge {
+        key = { hdr.ipv4.dst_addr : lpm; }
+        actions = { set_dst_edge; NoAction; }
+        const default_action = NoAction;
+        size = 64;
+    }
+
+    // Table 3: Local forwarding
+    action forward_local(mac_addr_t dmac, PortId_t port) {
+        hdr.ethernet.src_addr = hdr.ethernet.dst_addr;
+        hdr.ethernet.dst_addr = dmac;
+        ig_tm_md.ucast_egress_port = port;
+        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+    }
+
+    table local_forward {
+        key = { hdr.ipv4.dst_addr : lpm; }
+        actions = { forward_local; NoAction; }
+        const default_action = NoAction;
+        size = 64;
+    }
+
+    // Table 4: Clos ECMP uplink (with flowlet integration)
+    // Hash for Clos ECMP selector (5-tuple + flowlet_id)
+    Hash<bit<16>>(HashAlgorithm_t.CRC16) ecmp_selector_hash;
+
+    ActionProfile(256) clos_ecmp_profile;
+    ActionSelector(
+        clos_ecmp_profile,
+        ecmp_selector_hash,  // Hash for Clos ECMP
+        SelectorMode_t.FAIR,
+        32w32,   // max_group_size
+        32w16    // num_groups (4 edges * 4 max groups)
+    ) clos_ecmp_selector;
+
+    action set_uplink(mac_addr_t dmac, PortId_t port) {
+        hdr.ethernet.src_addr = hdr.ethernet.dst_addr;
+        hdr.ethernet.dst_addr = dmac;
+        ig_tm_md.ucast_egress_port = port;
+        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+    }
+
+    table ecmp_uplink {
+        key = {
+            ig_md.src_edge : exact;
+            // 5-tuple + flowlet_id for consistent routing
+            hdr.ipv4.src_addr : selector;
+            hdr.ipv4.dst_addr : selector;
+            hdr.ipv4.protocol : selector;
+            ig_md.l4_src_port : selector;
+            ig_md.l4_dst_port : selector;
+            ig_md.flowlet_id : selector;  // Key integration point
+        }
+        actions = { set_uplink; NoAction; }
+        const default_action = NoAction;
+        size = 256;
+        implementation = clos_ecmp_selector;
+    }
+
     // === ARP: per-ingress-port "gateway" info ===
     action set_port_info(mac_addr_t mac, ipv4_addr_t ip) {
         ig_md.my_mac = mac;
@@ -70,58 +149,13 @@ control SwitchIngress(
         ig_dprsr_md.drop_ctl = 1;
     }
 
-    // === IPv4 forwarding / ECMP (with ActionSelector) ===
-    
-    // Hash for ECMP selector (5-tuple + flowlet_id)
-    Hash<bit<16>>(HashAlgorithm_t.CRC16) ecmp_selector_hash;
-    
-    // ActionProfile and ActionSelector for ECMP with flowlet
-    ActionProfile(1024) ecmp_action_profile;
-    ActionSelector(
-        ecmp_action_profile,
-        ecmp_selector_hash,
-        SelectorMode_t.FAIR,
-        32w256,      // max_group_size: max members per ECMP group
-        32w128       // num_groups: number of ECMP groups
-    ) ecmp_selector;
-
-    action set_nhop(mac_addr_t dmac, PortId_t port) {
-        hdr.ethernet.src_addr = hdr.ethernet.dst_addr;
-        hdr.ethernet.dst_addr = dmac;
-        ig_tm_md.ucast_egress_port = port;
-        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-    }
-
-    action ecmp_group(ecmp_group_id_t gid) {
-        ig_md.ecmp_group_id = gid;
-    }
-
-    table ipv4_lpm {
-        key = { hdr.ipv4.dst_addr : lpm; }
-        actions = { set_nhop; ecmp_group; drop; }
-        const default_action = drop;
-        size = 1024;
-    }
-
-    table ecmp_group_to_nhop {
-        key = {
-            ig_md.ecmp_group_id : exact;
-            hdr.ipv4.src_addr   : selector;
-            hdr.ipv4.dst_addr   : selector;
-            ig_md.l4_src_port   : selector;
-            ig_md.l4_dst_port   : selector;
-            hdr.ipv4.protocol   : selector;
-            ig_md.flowlet_id    : selector;
-        }
-        actions = { set_nhop; drop; }
-        const default_action = drop;
-        size = 1024;
-        implementation = ecmp_selector;
-    }
-
     apply {
-        // ARP handling (minimal, like your v1model version)
-        // Split complex condition to avoid "condition too complex" error
+        // Initialize Clos metadata
+        ig_md.src_edge = 0;
+        ig_md.dst_edge = 0;
+        ig_md.port_type = PORT_TYPE_UNKNOWN;
+
+        // ARP handling (unchanged)
         if (hdr.arp.isValid()) {
             port_info.apply();
             if (hdr.arp.oper == ARP_REQUEST) {
@@ -140,7 +174,7 @@ control SwitchIngress(
             return;
         }
 
-        // Fill L4 ports (TCP/UDP); otherwise 0 (3-tuple)
+        // Fill L4 ports (TCP/UDP); otherwise 0 (unchanged)
         if (hdr.tcp.isValid()) {
             ig_md.l4_src_port = hdr.tcp.src_port;
             ig_md.l4_dst_port = hdr.tcp.dst_port;
@@ -152,10 +186,10 @@ control SwitchIngress(
             ig_md.l4_dst_port = 0;
         }
 
-        // Current timestamp (low 32 bits of ingress_mac_tstamp, in ns)
+        // Current timestamp (unchanged)
         ig_md.current_timestamp = (bit<32>) ig_intr_md.ingress_mac_tstamp;
 
-        // Compute flow hash (5-tuple without flowlet_id)
+        // Compute flow hash (unchanged)
         ig_md.flow_hash = flow_hash_calc.get({
             hdr.ipv4.src_addr,
             hdr.ipv4.dst_addr,
@@ -164,17 +198,30 @@ control SwitchIngress(
             ig_md.l4_dst_port
         });
 
+        // Flowlet processing (unchanged)
         bit<1> new_flowlet = check_and_update_flowlet.execute(ig_md.flow_hash);
         ig_md.is_new_flowlet = new_flowlet;
         if (new_flowlet == 1w1) {
             ig_md.flowlet_id = alloc_flowlet_id.execute(ig_md.flow_hash);
         }
 
-        // Route: LPM first, then optional ECMP resolution.
-        switch (ipv4_lpm.apply().action_run) {
-            ecmp_group: {
-                ecmp_group_to_nhop.apply();
+        // === NEW: Clos Topology Forwarding (Full Replacement) ===
+        port_to_edge.apply();  // Classify source edge and port type
+        dst_to_edge.apply();   // Classify destination edge
+
+        // Conditional forwarding based on Clos logic
+        if (ig_md.port_type == PORT_TYPE_DOWNLINK) {
+            // From host
+            if (ig_md.src_edge == ig_md.dst_edge && ig_md.dst_edge != 0) {
+                // Same edge, local forward
+                local_forward.apply();
+            } else if (ig_md.dst_edge != 0) {
+                // Cross-edge, ECMP to spine with flowlet awareness
+                ecmp_uplink.apply();
             }
+        } else if (ig_md.port_type == PORT_TYPE_UPLINK) {
+            // From spine, local forward to destination host
+            local_forward.apply();
         }
     }
 }
