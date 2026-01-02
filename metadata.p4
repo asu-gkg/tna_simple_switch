@@ -26,7 +26,8 @@ const port_type_t PORT_TYPE_DOWNLINK = 1;
 const port_type_t PORT_TYPE_UPLINK = 2;
 
 // Flowlet相关常量和类型
-const bit<48> FLOWLET_TIMEOUT = 64000; // 64μs (以纳秒为单位)
+// 时间戳链路使用 32-bit（取 ingress_mac_tstamp 低 32 位），约 4.29s 回绕一次
+const bit<32> FLOWLET_TIMEOUT = 64000; // 64μs (以纳秒为单位)
 typedef bit<32> flow_hash_t;
 typedef bit<16> flowlet_id_t;
 typedef bit<8> path_id_t;
@@ -45,9 +46,9 @@ struct ingress_metadata_t {
 
     // Flowlet相关字段
     flow_hash_t flow_hash;           // flow标识hash
-    bit<48> current_timestamp;       // 当前包时间戳
-    bit<48> last_seen_timestamp;     // 该flow上次包时间戳
-    bit<48> flowlet_gap;            // 包间隔时间
+    bit<32> current_timestamp;       // 当前包时间戳（ingress_mac_tstamp 低 32 位）
+    bit<32> last_seen_timestamp;     // 该flow上次包时间戳（低 32 位）
+    bit<32> flowlet_gap;            // 包间隔时间（模 2^32）
     flowlet_id_t flowlet_id;        // 当前flowlet ID
     bool is_new_flowlet;            // 是否新flowlet
     path_id_t selected_path;        // 选择的路径ID

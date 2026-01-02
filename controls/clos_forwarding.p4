@@ -14,16 +14,16 @@ control ClosForwarding(
     Hash<bit<32>>(HashAlgorithm_t.CRC32) flow_hash_calc;
 
     // Flowlet状态跟踪寄存器
-    // 注意：Tofino 的 Register 元素类型不支持 bit<48>，这里用 bit<64> 存放时间戳（低 48-bit 有效）
-    Register<bit<64>, flow_hash_t>(32768) flowlet_last_seen;  // 上次包时间戳
+    // 时间戳链路使用 32-bit（取 ingress_mac_tstamp 低 32 位）
+    Register<bit<32>, flow_hash_t>(32768) flowlet_last_seen;  // 上次包时间戳（低 32 位）
     Register<flowlet_id_t, flow_hash_t>(32768) flowlet_counter; // flowlet计数器
     Register<path_id_t, flow_hash_t>(32768) flowlet_path;    // 当前路径
 
     // 更新时间戳并返回上次时间戳
-    RegisterAction<bit<64>, flow_hash_t, bit<64>>(flowlet_last_seen) update_timestamp = {
-        void apply(inout bit<64> value, out bit<64> result) {
+    RegisterAction<bit<32>, flow_hash_t, bit<32>>(flowlet_last_seen) update_timestamp = {
+        void apply(inout bit<32> value, out bit<32> result) {
             result = value;
-            value = (bit<64>) ig_md.current_timestamp;
+            value = ig_md.current_timestamp;
         }
     };
 
@@ -197,21 +197,25 @@ control ClosForwarding(
                     lkp.l4_dst_port
                 });
 
-                // 获取当前时间戳
-                ig_md.current_timestamp = ig_intr_md.ingress_mac_tstamp;
+                // 获取当前时间戳（取低 32 位）
+                ig_md.current_timestamp = (bit<32>) ig_intr_md.ingress_mac_tstamp;
 
                 // 获取上次包的时间戳并更新
-                ig_md.last_seen_timestamp = (bit<48>) update_timestamp.execute(ig_md.flow_hash);
+                ig_md.last_seen_timestamp = update_timestamp.execute(ig_md.flow_hash);
 
                 // 计算包间隔
                 ig_md.flowlet_gap = ig_md.current_timestamp - ig_md.last_seen_timestamp;
 
                 // 判断是否新flowlet + 为新 flowlet 分配 ID
-                if (ig_md.flowlet_gap > FLOWLET_TIMEOUT || ig_md.last_seen_timestamp == 0) {
+                // 目标对 if 条件的 PHV 输入宽度有限制：避免在同一个条件里做 OR
+                ig_md.is_new_flowlet = false;
+                if (ig_md.last_seen_timestamp == 32w0) {
                     ig_md.is_new_flowlet = true;
+                } else if (ig_md.flowlet_gap > FLOWLET_TIMEOUT) {
+                    ig_md.is_new_flowlet = true;
+                }
+                if (ig_md.is_new_flowlet) {
                     ig_md.flowlet_id = increment_flowlet.execute(ig_md.flow_hash);
-                } else {
-                    ig_md.is_new_flowlet = false;
                 }
 
                 // Step 2: 根据是否新flowlet选择转发策略
