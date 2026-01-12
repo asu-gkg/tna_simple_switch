@@ -1,14 +1,3 @@
-const bit<32> FLOWLET_TIMEOUT = 640000; // 640μs (以纳秒为单位)
-const bit<32> TIMEOUT1 = 1000000000; // 1s
-
-#define REGISTER_SIZE 65536
-typedef bit<16> flow_idx_t;
-typedef bit<16> flowlet_id_t;
-typedef bit<32> timestamp_t;
-
-#define ECMP_GROUP_SIZE 2
-
-
 typedef bit<48> mac_addr_t;
 typedef bit<32> ipv4_addr_t;
 
@@ -83,8 +72,4 @@ header icmp_h {
     bit<8> type_;
     bit<8> code;
     bit<16> hdr_checksum;
-}
-
-header resubmit_h {
-    timestamp_t ts_start;
 }

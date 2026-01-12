@@ -1,6 +1,15 @@
+
+const bit<48> FLOWLET_TIMEOUT = 640000; // 640μs (以纳秒为单位)
+const bit<48> TIMEOUT1 = 1000000000; // 1s
+
+#define REGISTER_SIZE 65536
+typedef bit<16> flow_idx_t;
+typedef bit<16> flowlet_id_t;
+typedef bit<48> timestamp_t;
+
+#define ECMP_GROUP_SIZE 2
+
 struct ingress_metadata_t {
-    bool checksum_err;
-    
     // L4 header fields
     bit<16> l4_src_port;
     bit<16> l4_dst_port;
@@ -8,19 +17,20 @@ struct ingress_metadata_t {
     bit<16> flow_idx;
     bit<16> flowlet_id;
     bit<1> is_new_flowlet;
-    bit<1> update_ts_start;
     timestamp_t ts_now;
-    timestamp_t gap;
+
     timestamp_t ts_computation;
-    timestamp_t ts_start;
     timestamp_t ts_communication;
-    
-    bit<1> reset_qos;
-    bit<1> inc_qos;
     bit<5> qos;
     bit<16> ecmp_idx;
-    bit<8> qos_op;
+}
 
+struct flowlet_state_t {
+    timestamp_t   ts_prev;
+    timestamp_t   ts_start;
+    timestamp_t   ts_computation;
+    flowlet_id_t  flowlet_id;
+    bit<5> qos;
 }
 
 struct egress_metadata_t {

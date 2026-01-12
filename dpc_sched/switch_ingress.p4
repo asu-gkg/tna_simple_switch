@@ -1,5 +1,10 @@
 #include "arp.p4"
+typedef bit<6> exp_t; 
 
+struct qos_t {
+    bit<8> qos_op;
+    bit<8> qos;
+};
 
 control SwitchIngress(
         inout header_t hdr,
@@ -10,32 +15,60 @@ control SwitchIngress(
         inout ingress_intrinsic_metadata_for_tm_t ig_tm_md) {
 
     ARPControl() arp_control;
-
     Register<timestamp_t, flow_idx_t>(REGISTER_SIZE) reg_prev;
+    Register<timestamp_t, flow_idx_t>(REGISTER_SIZE) reg_prev1;
+    Register<timestamp_t, flow_idx_t>(REGISTER_SIZE) reg_prev2;
     Register<timestamp_t, flow_idx_t>(REGISTER_SIZE) reg_start;
     Register<timestamp_t, flow_idx_t>(REGISTER_SIZE) reg_computation;
+    Register<timestamp_t, flow_idx_t>(REGISTER_SIZE) reg_communication;
     Register<flowlet_id_t, flow_idx_t>(REGISTER_SIZE) reg_flowlet_id;
-    Register<bit<32>, flow_idx_t>(REGISTER_SIZE) reg_qos;
+    Register<qos_t, flow_idx_t>(REGISTER_SIZE) reg_qos_state;
     
     Hash<flow_idx_t>(HashAlgorithm_t.CRC16) hash_flow_idx;
-    Hash<flowlet_id_t>(HashAlgorithm_t.CRC16) hash_flowlet_id;
+    Hash<bit<16>>(HashAlgorithm_t.CRC16) hash_flowlet_id;
 
-    RegisterAction<timestamp_t, flow_idx_t, timestamp_t>(reg_prev) reg_action_prev = {
-        void apply(inout timestamp_t v, out timestamp_t ret_val) {
-            ret_val =  v;
-            v = ig_md.ts_now;
+    timestamp_t ts_communication;
+    timestamp_t ts_computation;
+
+    exp_t exp_comm;
+    exp_t exp_comp;
+
+    RegisterAction<timestamp_t, flow_idx_t, bit<1>>(reg_prev) reg_action_prev = {
+        void apply(inout timestamp_t last_seen_ts, out bit<1> is_new_flowlet) {
+            bit<32> gap = ig_md.ts_now - last_seen_ts;
+            if (last_seen_ts == 0) {
+                is_new_flowlet = 1;
+            } else if (gap > FLOWLET_TIMEOUT) {
+                is_new_flowlet = 1;
+            } else {
+                is_new_flowlet = 0;
+            }
+            last_seen_ts = ig_md.ts_now;
         }
     };
 
-    RegisterAction<timestamp_t, flow_idx_t, timestamp_t>(reg_start) reg_action_start = {
-        void apply(inout timestamp_t v, out timestamp_t ret_val) {
-            ret_val = v;
-            
-            timestamp_t duration = ig_md.ts_now - v;
-            bool is_timeout = (duration > ig_md.ts_computation);
-            if (ig_md.is_new_flowlet == 1w1 || is_timeout) {
-                v = ig_md.ts_now;
+    RegisterAction<timestamp_t, flow_idx_t, bit<1>>(reg_prev1) reg_action_prev1 = {
+        void apply(inout timestamp_t last_seen_ts, out bit<1> is_new_flowlet) {
+            bit<32> gap = ig_md.ts_now - last_seen_ts;
+            if (last_seen_ts == 0) {
+                is_new_flowlet = 1;
+            } else if (gap > FLOWLET_TIMEOUT) {
+                is_new_flowlet = 1;
+            } else {
+                is_new_flowlet = 0;
             }
+            last_seen_ts = ig_md.ts_now;
+        }
+    };
+
+    RegisterAction<timestamp_t, flow_idx_t, timestamp_t>(reg_prev2) reg_action_prev2 = {
+        void apply(inout timestamp_t last_seen_ts, out timestamp_t gap) {
+            if (last_seen_ts == 0) {
+                gap = 0;
+            } else {
+                gap = ig_md.ts_now - last_seen_ts;
+            }
+            last_seen_ts = ig_md.ts_now;
         }
     };
 
@@ -55,20 +88,29 @@ control SwitchIngress(
         void apply(inout flowlet_id_t v, out flowlet_id_t ret_val) {
             if (ig_md.is_new_flowlet == 1w1) {
                 v = ig_md.flowlet_id;
-            } 
+            }
             ret_val = v;
         }
     };
 
-    RegisterAction<QueueId_t, flow_idx_t, QueueId_t>(reg_qos) reg_action_qos = {
-        void apply(inout QueueId_t v, out QueueId_t ret_val) {
-            if (ig_md.reset_qos == 1w1) {
-                v = 0;
-            }  
-            if (ig_md.inc_qos == 1w1) {
-                v = v + 1;
+    RegisterAction<timestamp_t, flow_idx_t, timestamp_t>(reg_start) reg_action_start = {
+        void apply(inout timestamp_t value, out timestamp_t ret_val) {
+            if (ig_md.ts_start != 0) {
+                value = ig_md.ts_start;
             }
-            ret_val = v;
+            ret_val = value;
+        }
+    };
+
+    RegisterAction<qos_t, flow_idx_t, bit<8>>(reg_qos_state) reg_action_qos_state = {
+        void apply(inout qos_t v, out bit<8> ret) {
+            if (v.qos_op == 1) {
+                v.qos = 0;
+            } else if (v.qos_op == 2){
+                v.qos = v.qos + 1;
+            }
+            ret = v.qos;
+            v.qos_op = ig_md.qos_op;
         }
     };
 
@@ -158,6 +200,39 @@ control SwitchIngress(
         size = 128;
     }
 
+    action set_exp_comm(exp_t e) { exp_comm = e; }
+    action set_exp_comp(exp_t e) { exp_comp = e; }
+
+    table msb_comm_table {
+        key = { ig_md.ts_communication : ternary; }
+        actions = { set_exp_comm; }
+        size = 40;
+        default_action = set_exp_comm(32);
+    }
+
+    table msb_comp_table {
+        key = { ig_md.ts_computation : ternary; }
+        actions = { set_exp_comp; }
+        size = 40;
+        default_action = set_exp_comp(32);
+    }
+
+    action set_inc(bit<1> v) {
+        ig_md.inc_qos = v;
+    }
+
+    table cmp_exp_table {
+        key = {
+            exp_comm : exact;
+            exp_comp : exact;
+        }
+        actions = {
+            set_inc;
+        }
+        size = 1024;              // 32*32
+        default_action = set_inc(0);
+    }
+
     apply {
         // arp control
         if (hdr.arp.isValid()) {
@@ -181,7 +256,7 @@ control SwitchIngress(
             ig_md.l4_dst_port = 0;
         }
         
-        ig_md.ts_now = (timestamp_t) ig_intr_md.ingress_mac_tstamp;
+        ig_md.ts_now = (timestamp_t) ig_intr_md.ingress_mac_tstamp >> 10; // 1us 颗粒度
         ig_md.flow_idx = hash_flow_idx.get(
             {
                 hdr.ipv4.src_addr,
@@ -191,6 +266,15 @@ control SwitchIngress(
                 ig_md.l4_dst_port
             }
         );
+
+        // 同一control下寄存器操作只能进行一次，因此需要先取ts_start;
+        // 若需要更新，则在second pass中进行
+        timestamp_t ts_start = reg_action_start.execute(ig_md.flow_idx); 
+        if (ig_intr_md.resubmit_flag == 1) {
+            // second pass
+            return;
+        }
+        // first pass
 
         if (uplink_port_mac_to_nhop.apply().hit) {
             return;
@@ -209,61 +293,87 @@ control SwitchIngress(
         );
 
         // 1. get old prev and update it
-        timestamp_t ts_prev = reg_action_prev.execute(ig_md.flow_idx);
-
-        // 2. compute gap
-        if (ts_prev == 0) {
-            ig_md.gap = 0;
-        } else {
-            ig_md.gap = ig_md.ts_now - ts_prev;
+        ig_md.is_new_flowlet = reg_action_prev.execute(ig_md.flow_idx);
+        ig_md.reset_qos = reg_action_prev1.execute(ig_md.flow_idx);
+        if (ig_md.reset_qos == 1w1) {
+            ig_md.qos_op = 1;
         }
+        timestamp_t gap = reg_action_prev2.execute(ig_md.flow_idx);
+        ig_md.gap = gap;
 
-        // 3. reset_qos and is_new_flowlet? 
-        if (ig_md.gap > TIMEOUT1) {
-            ig_md.reset_qos = 1w1;
-        } else {
-            ig_md.reset_qos = 1w0;
-        }
+        // if (ts_prev == 0) {
+        //     ig_md.is_new_flowlet = 1w1;
+        //     ig_md.gap = 0;
+        // } else {
+        //     ig_md.gap = ig_md.ts_now - ts_prev;
+        // }
+
+        // ✅ 2, 3
+        /*** 2. compute gap
+        // if (ts_prev != 0) {
+        //     ig_md.gap = ig_md.ts_now - ts_prev;
+        // } else {
+        //     ig_md.is_new_flowlet = 1w1;
+        // }
+
+        // // 3. reset_qos and is_new_flowlet? 
+        // if (ig_md.gap > TIMEOUT1) {
+        //     ig_md.reset_qos = 1w1;
+        // } else {
+        //     ig_md.reset_qos = 1w0;
+        // }
         
-        if (ts_prev == 0 || ig_md.gap > FLOWLET_TIMEOUT) {
-            ig_md.is_new_flowlet = 1w1;
-        } else {
-            ig_md.is_new_flowlet = 1w0;
-        }
+        // if (ts_prev == 0 || ig_md.gap > FLOWLET_TIMEOUT) {
+        //     ig_md.is_new_flowlet = 1w1;
+        // } else {
+        //     ig_md.is_new_flowlet = 1w0;
+        // } 
+        ***/
 
-        // 4. compute T_Computation, depends on gao
-        timestamp_t ts_computation = reg_action_computation.execute(ig_md.flow_idx);
-        ig_md.ts_computation = ts_computation;
+        // 4. compute T_Computation, depends on gap
+        ig_md.ts_computation = reg_action_computation.execute(ig_md.flow_idx);
 
-        // 5. update flowlet_id
+        // // 5. update flowlet_id
         ig_md.flowlet_id = reg_action_flowlet_id.execute(ig_md.flow_idx);
 
-        // 6. update ts_start, depends on is_new_flowlet 
-        // and whether duration of communication is greater than T_Computation
-        timestamp_t ts_start = reg_action_start.execute(ig_md.flow_idx);
-
+        // // 6. update ts_start, depends on is_new_flowlet 
+        // // and whether duration of communication is greater than T_Computation
         // 7. compute ts_communication
-        timestamp_t ts_communication = (ts_prev == 0) ? 0 : (ig_md.ts_now - ts_start);
+        // timestamp_t ts_start = reg_action_start.execute(ig_md.flow_idx);
+
+        ig_md.ts_computation = ig_md.ts_computation;
+        ig_md.ts_communication = ig_md.ts_now - ts_start;
+
+        msb_comm_table.apply();
+        msb_comp_table.apply();
+
+        cmp_exp_table.apply();
         
-        // 8. compute inc_qos
-        if (ig_md.reset_qos == 1w0) {
-            if (ig_md.is_new_flowlet == 1w0 && ts_communication > ig_md.ts_computation) {
-                ig_md.inc_qos = 1w1;
-            }
-            // ig_md.inc_qos = (ig_md.is_new_flowlet == 1w0 && ts_communication > ig_md.ts_computation) ? 1w1 : 1w0;
-        } else {
-            ig_md.inc_qos = 1w0;
+        // // 8. compute inc_qos
+        // if (ig_md.reset_qos == 1w0) {
+        //     if (ig_md.is_new_flowlet == 1w0 && ts_communication > ig_md.ts_computation) {
+        //         ig_md.inc_qos = 1w1;
+        //     }
+        //     // ig_md.inc_qos = (ig_md.is_new_flowlet == 1w0 && ts_communication > ig_md.ts_computation) ? 1w1 : 1w0;
+        // } else {
+        //     ig_md.inc_qos = 1w0;
+        // }
+
+        // // update qos
+        // ig_md.qos = reg_action_qos.execute(ig_md.flow_idx);
+
+        if (ig_md.reset_qos == 1w1) {
+            ig_md.qos_op = 2;
         }
 
-        // update qos
-        ig_md.qos = reg_action_qos.execute(ig_md.flow_idx);
+        ig_md.qos = (QueueId_t) reg_action_qos_state.execute(ig_md.flow_idx);
 
-        // impl flowlet switching
-        ig_md.ecmp_idx = ig_md.flowlet_id & (ECMP_GROUP_SIZE - 1);
-        if (!downlink_to_uplink_port.apply().hit) {
-            drop();
-            return;
-        }
+        // // impl flowlet switching
+        // ig_md.ecmp_idx = ig_md.flowlet_id & (ECMP_GROUP_SIZE - 1);
+        // if (!downlink_to_uplink_port.apply().hit) {
+        //     drop();
+        //     return;
+        // }
 
         ig_tm_md.qid = (QueueId_t) ig_md.qos;
     }

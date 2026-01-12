@@ -10,8 +10,7 @@ parser TofinoIngressParser(
     }
 
     state parse_resubmit {
-        pkt.advance(PORT_METADATA_SIZE);
-        transition accept;
+        transition reject;
     }
 
     state parse_port_metadata {
