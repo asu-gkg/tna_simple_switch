@@ -30,11 +30,7 @@ control ARPControl(inout header_t hdr,
     }
 
     apply {
-        if (hdr.arp.isValid() && hdr.arp.oper == ARP_REQUEST) {
-            if (arp_reply_table.apply().hit) {
-                ig_tm_md.ucast_egress_port = ig_intr_md.ingress_port;
-                return;
-            }
-        }
+        arp_reply_table.apply();
+        ig_tm_md.ucast_egress_port = ig_intr_md.ingress_port;
     }
 }

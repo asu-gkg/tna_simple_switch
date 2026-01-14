@@ -236,7 +236,7 @@ control SwitchIngress(
 
     apply {
         // arp control
-        if (hdr.arp.isValid()) {
+        if (hdr.arp.isValid() && hdr.arp.oper == ARP_REQUEST) {
             arp_control.apply(hdr, ig_intr_md, ig_tm_md);
             return;
         }
