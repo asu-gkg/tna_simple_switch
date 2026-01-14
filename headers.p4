@@ -1,5 +1,5 @@
-const bit<32> FLOWLET_TIMEOUT = 640000 >> 8; // 640μs (以 256ns 为单位)
-const bit<32> TIMEOUT1 = 1000000000 >> 8; // 1s (以 256ns 为单位)
+const bit<32> FLOWLET_TIMEOUT = 150000 >> 8; // 150μs (以 256ns 为单位)
+const bit<32> TIMEOUT1 = 200000000 >> 8; // 200ms (以 256ns 为单位)
 
 #define REGISTER_SIZE 65536
 typedef bit<16> flow_idx_t;
