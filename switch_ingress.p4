@@ -107,7 +107,7 @@ control SwitchIngress(
         void apply(inout qos_t v, out bit<8> ret) {
             if (v.qos_op == 1) {
                 v.qos = 0;
-            } else if (v.qos_op == 2){
+            } else if (v.qos_op == 2) {
                 v.qos = v.qos + 1;
             }
             ret = v.qos;
@@ -374,7 +374,12 @@ control SwitchIngress(
             ig_md.qos_op = 2;
         }
 
-        ig_md.qos = (QueueId_t) reg_action_qos_state.execute(ig_md.flow_idx);
+        bit<8> qos = reg_action_qos_state.execute(ig_md.flow_idx);
+        if (qos > 31) {
+            ig_md.qos = 31;
+        } else {
+            ig_md.qos = (QueueId_t) qos;
+        }
 
         // impl flowlet switching
         ig_md.ecmp_idx = ig_md.flowlet_id & (ECMP_GROUP_SIZE - 1);
