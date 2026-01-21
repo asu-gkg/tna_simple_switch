@@ -5,6 +5,8 @@ struct ingress_metadata_t {
     bit<16> l4_src_port;
     bit<16> l4_dst_port;
 
+    PortId_t ingress_port;
+
     bit<16> flow_idx;
     bit<16> flowlet_id;
     bit<1> is_new_flowlet;

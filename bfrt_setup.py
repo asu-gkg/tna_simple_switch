@@ -38,22 +38,33 @@ H6_MAC = 0xb49691d4fab1  # 172.3.1.3
 H7_MAC = 0xb49691af45b8  # 172.4.1.2
 H8_MAC = 0xb49691af45b9  # 172.4.1.3
 
-# Uplink to downlink forwarding: (uplink_ports, dst_ip, dst_mac, downlink_port)
-# From Spine back to hosts
-UPLINK_TO_DOWNLINK = [
-    # Edge 1: uplinks 25,26 -> hosts h1,h2
-    {"uplinks": [DEV_PORT[25], DEV_PORT[26]], "dst_ip": 0xAC010102, "dmac": H1_MAC, "port": DEV_PORT[1]},  # 172.1.1.2
-    {"uplinks": [DEV_PORT[25], DEV_PORT[26]], "dst_ip": 0xAC010103, "dmac": H2_MAC, "port": DEV_PORT[2]},  # 172.1.1.3
-    # Edge 2: uplinks 27,28 -> hosts h3,h4
-    {"uplinks": [DEV_PORT[27], DEV_PORT[28]], "dst_ip": 0xAC020102, "dmac": H3_MAC, "port": DEV_PORT[3]},  # 172.2.1.2
-    {"uplinks": [DEV_PORT[27], DEV_PORT[28]], "dst_ip": 0xAC020103, "dmac": H4_MAC, "port": DEV_PORT[4]},  # 172.2.1.3
-    # Edge 3: uplinks 29,30 -> hosts h5,h6
-    {"uplinks": [DEV_PORT[29], DEV_PORT[30]], "dst_ip": 0xAC030102, "dmac": H5_MAC, "port": DEV_PORT[5]},  # 172.3.1.2
-    {"uplinks": [DEV_PORT[29], DEV_PORT[30]], "dst_ip": 0xAC030103, "dmac": H6_MAC, "port": DEV_PORT[6]},  # 172.3.1.3
-    # Edge 4: uplinks 31,32 -> hosts h7,h8
-    {"uplinks": [DEV_PORT[31], DEV_PORT[32]], "dst_ip": 0xAC040102, "dmac": H7_MAC, "port": DEV_PORT[7]},  # 172.4.1.2
-    {"uplinks": [DEV_PORT[31], DEV_PORT[32]], "dst_ip": 0xAC040103, "dmac": H8_MAC, "port": DEV_PORT[8]},  # 172.4.1.3
+# Uplink to downlink forwarding: allow any uplink to reach any host.
+# This avoids strict (ingress_port, dst_ip) coupling when uplink wiring or
+# spine routing does not match per-edge assumptions.
+UPLINK_PORTS = [
+    DEV_PORT[25], DEV_PORT[26], DEV_PORT[27], DEV_PORT[28],
+    DEV_PORT[29], DEV_PORT[30], DEV_PORT[31], DEV_PORT[32],
 ]
+
+HOSTS = [
+    {"dst_ip": 0xAC010102, "dmac": H1_MAC, "port": DEV_PORT[1]},  # 172.1.1.2
+    {"dst_ip": 0xAC010103, "dmac": H2_MAC, "port": DEV_PORT[2]},  # 172.1.1.3
+    {"dst_ip": 0xAC020102, "dmac": H3_MAC, "port": DEV_PORT[3]},  # 172.2.1.2
+    {"dst_ip": 0xAC020103, "dmac": H4_MAC, "port": DEV_PORT[4]},  # 172.2.1.3
+    {"dst_ip": 0xAC030102, "dmac": H5_MAC, "port": DEV_PORT[5]},  # 172.3.1.2
+    {"dst_ip": 0xAC030103, "dmac": H6_MAC, "port": DEV_PORT[6]},  # 172.3.1.3
+    {"dst_ip": 0xAC040102, "dmac": H7_MAC, "port": DEV_PORT[7]},  # 172.4.1.2
+    {"dst_ip": 0xAC040103, "dmac": H8_MAC, "port": DEV_PORT[8]},  # 172.4.1.3
+]
+
+UPLINK_TO_DOWNLINK = []
+for host in HOSTS:
+    UPLINK_TO_DOWNLINK.append({
+        "uplinks": UPLINK_PORTS,
+        "dst_ip": host["dst_ip"],
+        "dmac": host["dmac"],
+        "port": host["port"],
+    })
 
 # Downlink ports and their two uplinks (per-edge)
 # Each downlink gets two entries: ecmp_idx=0/1.

@@ -86,4 +86,7 @@ header icmp_h {
 
 header resubmit_h {
     timestamp_t ts_start;
+    bit<16> ingress_port;
+    bit<8> ecmp_idx;
+    bit<8> qos;
 }
