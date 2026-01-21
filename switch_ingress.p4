@@ -386,7 +386,7 @@ control SwitchIngress(
         if (ig_md.qos_op != 0 && ig_intr_md.resubmit_flag == 0) {
             ig_md.resubmit_data.ts_start = ig_md.ts_now;
             ig_md.resubmit_data.eg_port = (bit<16>) ig_tm_md.ucast_egress_port;
-            ig_dprsr_md.resubmit_type = 1;
+            ig_dprsr_md.resubmit_type = 2;
         }
     }
 }
