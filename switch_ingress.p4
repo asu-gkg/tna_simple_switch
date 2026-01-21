@@ -175,10 +175,10 @@ control SwitchIngress(
         ig_dprsr_md.drop_ctl = 1;
     }
 
-    table uplink_port_mac_to_nhop {
+    table uplink_port_ip_to_nhop {
         key = {
             ig_intr_md.ingress_port : exact;
-            hdr.ethernet.dst_addr   : exact;
+            hdr.ipv4.dst_addr       : exact;
         }
         actions = {
             set_nhop;
@@ -280,7 +280,7 @@ control SwitchIngress(
         }
 
         // first pass
-        if (uplink_port_mac_to_nhop.apply().hit) {
+        if (uplink_port_ip_to_nhop.apply().hit) {
             return;
         }
 
