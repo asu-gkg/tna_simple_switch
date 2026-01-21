@@ -1,8 +1,6 @@
 struct ingress_metadata_t {
     bool checksum_err;
 
-    PortId_t ingress_port;
-
     // L4 header fields
     bit<16> l4_src_port;
     bit<16> l4_dst_port;

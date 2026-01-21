@@ -21,7 +21,6 @@ parser SwitchIngressParser(
 
     state parse_port_metadata {
         pkt.advance(PORT_METADATA_SIZE);
-        // ig_md.resubmit_data.ts_start = 0;
         transition parse_ethernet;
     }
 

@@ -245,8 +245,6 @@ control SwitchIngress(
             return;
         }
 
-        ig_md.ingress_port = ig_intr_md.ingress_port;
-
         // init metadata
         if (hdr.tcp.isValid()) {
             ig_md.l4_src_port = hdr.tcp.src_port;
@@ -278,7 +276,6 @@ control SwitchIngress(
         if (ig_intr_md.resubmit_flag == 1) {
             // second pass: use cached forwarding results
             ig_tm_md.ucast_egress_port = (PortId_t) ig_md.resubmit_data.eg_port;
-            ig_tm_md.qid = (QueueId_t) ig_md.resubmit_data.qid;
             return;
         }
 
@@ -384,19 +381,19 @@ control SwitchIngress(
             ig_md.qos = (QueueId_t) qos;
         }
 
+        // ig_md.qos = (QueueId_t) qos;
+
         // impl flowlet switching
         ig_md.ecmp_idx = ig_md.flowlet_id & (ECMP_GROUP_SIZE - 1);
 
         downlink_to_uplink_port.apply();
-        ig_tm_md.qid = (QueueId_t) ig_md.qos;
 
-        // 判断是否需要更新ts_start：is_new_flowlet或inc_qos
-        // 如果需要，触发resubmit在第二次pass中更新寄存器
-        if (ig_md.qos_op != 0 && ig_intr_md.resubmit_flag == 0) {
-            ig_md.resubmit_data.ts_start = ig_md.ts_now;
-            ig_md.resubmit_data.eg_port = (bit<8>) ig_tm_md.ucast_egress_port;
-            ig_md.resubmit_data.qid = (bit<8>) ig_tm_md.qid;
-            ig_dprsr_md.resubmit_type = 1;
-        }
+        // // 判断是否需要更新ts_start：is_new_flowlet或inc_qos
+        // // 如果需要，触发resubmit在第二次pass中更新寄存器
+        // if (ig_md.qos_op != 0 && ig_intr_md.resubmit_flag == 0) {
+        //     ig_md.resubmit_data.ts_start = ig_md.ts_now;
+        //     ig_md.resubmit_data.eg_port = (bit<16>) ig_tm_md.ucast_egress_port;
+        //     ig_dprsr_md.resubmit_type = 1;
+        // }
     }
 }
