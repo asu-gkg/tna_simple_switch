@@ -86,5 +86,6 @@ header icmp_h {
 
 header resubmit_h {
     timestamp_t ts_start;
-    bit<32> padding;
+    bit<8> eg_port;
+    bit<5> qid;
 }
