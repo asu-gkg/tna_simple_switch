@@ -190,20 +190,7 @@ control SwitchIngress(
 
     table downlink_to_uplink_port {
         key = {
-            ig_md.ingress_port : exact;
-            ig_md.ecmp_idx : exact;
-        }
-        actions = {
-            set_nhop;
-            drop;
-        }
-        const default_action = drop;
-        size = 128;
-    }
-
-    table downlink_to_uplink_port_resubmit {
-        key = {
-            ig_md.ingress_port : exact;
+            ig_intr_md.ingress_port : exact;
             ig_md.ecmp_idx : exact;
         }
         actions = {
@@ -258,9 +245,6 @@ control SwitchIngress(
             return;
         }
 
-        ig_md.ingress_port = ig_intr_md.ingress_port;
-
-
         // init metadata
         if (hdr.tcp.isValid()) {
             ig_md.l4_src_port = hdr.tcp.src_port;
@@ -287,132 +271,121 @@ control SwitchIngress(
 
         // 同一control下寄存器操作只能进行一次，因此需要先取ts_start;
         // 若需要更新，则在second pass中进行
-        timestamp_t ts_start = reg_action_start.execute(ig_md.flow_idx); 
+        timestamp_t ts_start = reg_action_start.execute(ig_md.flow_idx);
 
-        if (ig_intr_md.resubmit_flag == 1) {
-            // second pass: only update ts_start and forward using cached results
-            ig_md.ingress_port = (PortId_t) ig_md.resubmit_data.ingress_port;
-            ig_md.ecmp_idx = (bit<16>) ig_md.resubmit_data.ecmp_idx;
-            ig_md.qos = (QueueId_t) ig_md.resubmit_data.qos;
-            downlink_to_uplink_port_resubmit.apply();
-            ig_tm_md.qid = (QueueId_t) ig_md.qos;
-        } else {
-            // first pass
-            if (uplink_port_ip_to_nhop.apply().hit) {
+        // first pass
+        if (uplink_port_ip_to_nhop.apply().hit) {
                 return;
-            }
-
-            // init a candidate flowlet_id
-            ig_md.flowlet_id = hash_flowlet_id.get(
-                {
-                    hdr.ipv4.src_addr,
-                    hdr.ipv4.dst_addr,
-                    hdr.ipv4.protocol,
-                    ig_md.l4_src_port,
-                    ig_md.l4_dst_port,
-                    ig_md.ts_now
-                }
-            );
-
-            // 1. get old prev and update it
-
-            /*** 
-            if (ts_prev == 0) {
-                ig_md.is_new_flowlet = 1w1;
-                ig_md.gap = 0;
-            } else {
-                ig_md.gap = ig_md.ts_now - ts_prev;
-            }
-            ***/
-            ig_md.is_new_flowlet = reg_action_prev.execute(ig_md.flow_idx);
-            ig_md.reset_qos = reg_action_prev1.execute(ig_md.flow_idx);
-
-            ig_md.gap = reg_action_prev2.execute(ig_md.flow_idx);
-
-            // ✅ 2, 3
-            /*** 2. compute gap
-            // if (ts_prev != 0) {
-            //     ig_md.gap = ig_md.ts_now - ts_prev;
-            // } else {
-            //     ig_md.is_new_flowlet = 1w1;
-            // }
-
-            // // 3. reset_qos and is_new_flowlet? 
-            // if (ig_md.gap > TIMEOUT1) {
-            //     ig_md.reset_qos = 1w1;
-            // } else {
-            //     ig_md.reset_qos = 1w0;
-            // }
-            
-            // if (ts_prev == 0 || ig_md.gap > FLOWLET_TIMEOUT) {
-            //     ig_md.is_new_flowlet = 1w1;
-            // } else {
-            //     ig_md.is_new_flowlet = 1w0;
-            // } 
-            ***/
-
-            // 4. compute T_Computation, depends on gap
-            ig_md.ts_computation = reg_action_computation.execute(ig_md.flow_idx);
-
-            // // 5. update flowlet_id
-            ig_md.flowlet_id = reg_action_flowlet_id.execute(ig_md.flow_idx);
-
-            // // 6. update ts_start, depends on is_new_flowlet 
-            // // and whether duration of communication is greater than T_Computation
-            // 7. compute ts_communication
-            // timestamp_t ts_start = reg_action_start.execute(ig_md.flow_idx);
-
-            ig_md.ts_computation = ig_md.ts_computation;
-            
-            ig_md.ts_communication = ig_md.ts_now - ts_start;
-
-            msb_comm_table.apply();
-            msb_comp_table.apply();
-
-            cmp_exp_table.apply();
-            
-            // // 8. compute inc_qos
-            // if (ig_md.reset_qos == 1w0) {
-            //     if (ig_md.is_new_flowlet == 1w0 && ts_communication > ig_md.ts_computation) {
-            //         ig_md.inc_qos = 1w1;
-            //     }
-            //     // ig_md.inc_qos = (ig_md.is_new_flowlet == 1w0 && ts_communication > ig_md.ts_computation) ? 1w1 : 1w0;
-            // } else {
-            //     ig_md.inc_qos = 1w0;
-            // }
-
-            // // update qos
-            // ig_md.qos = reg_action_qos.execute(ig_md.flow_idx);
-
-            // qos_op: 1 = reset, 2 = increment
-            ig_md.qos_op = 0;
-            if (ig_md.reset_qos == 1w1) {
-                ig_md.qos_op = 1;
-            } else if (ig_md.inc_qos == 1w1) {
-                ig_md.qos_op = 2;
-            }
-
-            bit<8> qos = reg_action_qos_state.execute(ig_md.flow_idx);
-            if (qos > 31) {
-                ig_md.qos = 31;
-            } else {
-                ig_md.qos = (QueueId_t) qos;
-            }
-
-            // impl flowlet switching
-            ig_md.ecmp_idx = ig_md.flowlet_id & (ECMP_GROUP_SIZE - 1);
-            downlink_to_uplink_port.apply();
-            ig_tm_md.qid = (QueueId_t) ig_md.qos;
-
-            // 判断是否需要更新ts_start：is_new_flowlet或inc_qos
-            // 如果需要，触发resubmit在第二次pass中更新寄存器
-            if (ig_md.qos_op != 0) {
-                ig_md.resubmit_data.ts_start = ig_md.ts_now;
-                ig_md.resubmit_data.ingress_port = (bit<16>) ig_md.ingress_port;
-                ig_md.resubmit_data.ecmp_idx = (bit<8>) ig_md.ecmp_idx;
-                ig_md.resubmit_data.qos = (bit<8>) ig_md.qos;
-                ig_dprsr_md.resubmit_type = 1;
-            }
         }
+
+        // init a candidate flowlet_id
+        ig_md.flowlet_id = hash_flowlet_id.get(
+            {
+                hdr.ipv4.src_addr,
+                hdr.ipv4.dst_addr,
+                hdr.ipv4.protocol,
+                ig_md.l4_src_port,
+                ig_md.l4_dst_port,
+                ig_md.ts_now
+            }
+        );
+
+        // 1. get old prev and update it
+
+        /*** 
+        if (ts_prev == 0) {
+            ig_md.is_new_flowlet = 1w1;
+            ig_md.gap = 0;
+        } else {
+            ig_md.gap = ig_md.ts_now - ts_prev;
+        }
+        ***/
+        ig_md.is_new_flowlet = reg_action_prev.execute(ig_md.flow_idx);
+        ig_md.reset_qos = reg_action_prev1.execute(ig_md.flow_idx);
+
+        ig_md.gap = reg_action_prev2.execute(ig_md.flow_idx);
+
+        // ✅ 2, 3
+        /*** 2. compute gap
+        // if (ts_prev != 0) {
+        //     ig_md.gap = ig_md.ts_now - ts_prev;
+        // } else {
+        //     ig_md.is_new_flowlet = 1w1;
+        // }
+
+        // // 3. reset_qos and is_new_flowlet? 
+        // if (ig_md.gap > TIMEOUT1) {
+        //     ig_md.reset_qos = 1w1;
+        // } else {
+        //     ig_md.reset_qos = 1w0;
+        // }
+        
+        // if (ts_prev == 0 || ig_md.gap > FLOWLET_TIMEOUT) {
+        //     ig_md.is_new_flowlet = 1w1;
+        // } else {
+        //     ig_md.is_new_flowlet = 1w0;
+        // } 
+        ***/
+
+        // 4. compute T_Computation, depends on gap
+        ig_md.ts_computation = reg_action_computation.execute(ig_md.flow_idx);
+
+        // // 5. update flowlet_id
+        ig_md.flowlet_id = reg_action_flowlet_id.execute(ig_md.flow_idx);
+
+        // // 6. update ts_start, depends on is_new_flowlet 
+        // // and whether duration of communication is greater than T_Computation
+        // 7. compute ts_communication
+        // timestamp_t ts_start = reg_action_start.execute(ig_md.flow_idx);
+
+        ig_md.ts_computation = ig_md.ts_computation;
+        
+        ig_md.ts_communication = ig_md.ts_now - ts_start;
+
+        msb_comm_table.apply();
+        msb_comp_table.apply();
+
+        cmp_exp_table.apply();
+        
+        // // 8. compute inc_qos
+        // if (ig_md.reset_qos == 1w0) {
+        //     if (ig_md.is_new_flowlet == 1w0 && ts_communication > ig_md.ts_computation) {
+        //         ig_md.inc_qos = 1w1;
+        //     }
+        //     // ig_md.inc_qos = (ig_md.is_new_flowlet == 1w0 && ts_communication > ig_md.ts_computation) ? 1w1 : 1w0;
+        // } else {
+        //     ig_md.inc_qos = 1w0;
+        // }
+
+        // // update qos
+        // ig_md.qos = reg_action_qos.execute(ig_md.flow_idx);
+
+        // qos_op: 1 = reset, 2 = increment
+        ig_md.qos_op = 0;
+        if (ig_md.reset_qos == 1w1) {
+            ig_md.qos_op = 1;
+        } else if (ig_md.inc_qos == 1w1) {
+            ig_md.qos_op = 2;
+        }
+
+        bit<8> qos = reg_action_qos_state.execute(ig_md.flow_idx);
+        if (qos > 31) {
+            ig_md.qos = 31;
+        } else {
+            ig_md.qos = (QueueId_t) qos;
+        }
+
+        // impl flowlet switching
+        ig_md.ecmp_idx = ig_md.flowlet_id & (ECMP_GROUP_SIZE - 1);
+
+        // 判断是否需要更新ts_start：is_new_flowlet或inc_qos
+        // 如果需要，触发resubmit在第二次pass中更新寄存器
+        if (ig_md.qos_op != 0 && ig_intr_md.resubmit_flag == 1) {
+            ig_md.resubmit_data.ts_start = ig_md.ts_now;
+            ig_dprsr_md.resubmit_type = 1;
+        }
+
+        downlink_to_uplink_port.apply();
+        ig_tm_md.qid = (QueueId_t) ig_md.qos;
     }
 }
