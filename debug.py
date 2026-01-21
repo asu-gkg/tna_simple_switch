@@ -71,6 +71,7 @@ except Exception as exc:
 for name in [
         "uplink_port_ip_to_nhop",
         "downlink_to_uplink_port",
+        "downlink_to_uplink_port_resubmit",
         "msb_comm_table",
         "msb_comp_table",
         "cmp_exp_table",
