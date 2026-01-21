@@ -381,12 +381,12 @@ control SwitchIngress(
 
         downlink_to_uplink_port.apply();
 
-        // // 判断是否需要更新ts_start：is_new_flowlet或inc_qos
-        // // 如果需要，触发resubmit在第二次pass中更新寄存器
-        // if (ig_md.qos_op != 0 && ig_intr_md.resubmit_flag == 0) {
-        //     ig_md.resubmit_data.ts_start = ig_md.ts_now;
-        //     ig_md.resubmit_data.eg_port = (bit<16>) ig_tm_md.ucast_egress_port;
-        //     ig_dprsr_md.resubmit_type = 1;
-        // }
+        // 判断是否需要更新ts_start：is_new_flowlet或inc_qos
+        // 如果需要，触发resubmit在第二次pass中更新寄存器
+        if (ig_md.qos_op != 0 && ig_intr_md.resubmit_flag == 0) {
+            ig_md.resubmit_data.ts_start = ig_md.ts_now;
+            ig_md.resubmit_data.eg_port = (bit<16>) ig_tm_md.ucast_egress_port;
+            ig_dprsr_md.resubmit_type = 1;
+        }
     }
 }
