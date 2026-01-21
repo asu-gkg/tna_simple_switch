@@ -374,14 +374,7 @@ control SwitchIngress(
             ig_md.qos_op = 2;
         }
 
-        bit<8> qos = reg_action_qos_state.execute(ig_md.flow_idx);
-        if (qos > 31) {
-            ig_md.qos = 31;
-        } else {
-            ig_md.qos = (QueueId_t) qos;
-        }
-
-        // ig_md.qos = (QueueId_t) qos;
+        ig_tm_md.qid = (QueueId_t) reg_action_qos_state.execute(ig_md.flow_idx);
 
         // impl flowlet switching
         ig_md.ecmp_idx = ig_md.flowlet_id & (ECMP_GROUP_SIZE - 1);
